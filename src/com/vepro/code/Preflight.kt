@@ -88,8 +88,16 @@ object Preflight {
      * Order matters: the missing pieces come first, because "you have not set a key"
      * is more useful than "your key does not match your endpoint" when both are true.
      */
-    fun check(baseUrl: String?, key: String?, model: String?): Problem? {
-        if ((key?.trimJava() ?: "").isEmpty()) {
+
+    fun check(
+        baseUrl: String?,
+        key: String?,
+        model: String?,
+        provider: String? = null
+    ): Problem? {
+        val isLocalModel = provider == Prefs.PROV_LM_STUDIO
+
+        if (!isLocalModel && (key?.trimJava() ?: "").isEmpty()) {
             return Problem(NO_KEY, Fa.PRE_NO_KEY, Fa.PRE_OPEN_SETTINGS)
         }
         if ((model?.trimJava() ?: "").isEmpty()) {
@@ -99,11 +107,10 @@ object Preflight {
         if (host.isEmpty()) {
             return Problem(BAD_ENDPOINT, Fa.PRE_BAD_ENDPOINT, Fa.PRE_OPEN_SETTINGS)
         }
+
         val keyVendor = vendorOfKey(key)
         val endpointVendor = vendorOfEndpoint(baseUrl)
-        // Both sides must be RECOGNISED before a mismatch means anything. A known key
-        // pointed at an unknown host is the normal shape of a gateway or a proxy, and
-        // blocking that would break every legitimate self-hosted setup.
+
         if (keyVendor.isNotEmpty() && endpointVendor.isNotEmpty() &&
             keyVendor != endpointVendor
         ) {

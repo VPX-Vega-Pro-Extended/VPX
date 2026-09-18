@@ -191,7 +191,7 @@ class ChatStore(context: Context) {
     /** The async path's only recourse: there is no caller left to throw at. */
     private fun report(id: String, problem: IllegalStateException?) {
         if (problem != null) {
-            Log.e("Vega", "chat save failed for $id", problem)
+            Log.e("VPX", "chat save failed for $id", problem)
         }
     }
 

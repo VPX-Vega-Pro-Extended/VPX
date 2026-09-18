@@ -29,6 +29,28 @@ class Prefs(context: Context) {
         sp.edit().putString("language", if (value == "fa") "fa" else "en").apply()
     }
 
+    fun voiceTriggerPhrase(): String =
+        sp.getString("voice_trigger_phrase", "hey vpx") ?: "hey vpx"
+
+    fun setVoiceTriggerPhrase(value: String?) {
+        val phrase = value?.trim().orEmpty()
+        sp.edit()
+            .putString(
+                "voice_trigger_phrase",
+                if (phrase.isEmpty()) "hey vpx" else phrase
+            )
+            .apply()
+    }
+
+    fun voiceTriggerEnabled(): Boolean =
+        sp.getBoolean("voice_trigger_enabled", false)
+
+    fun setVoiceTriggerEnabled(enabled: Boolean) {
+        sp.edit()
+            .putBoolean("voice_trigger_enabled", enabled)
+            .apply()
+    }
+
     /**
      * False until the user has answered the first-launch language question.
      *
@@ -302,9 +324,17 @@ class Prefs(context: Context) {
 
     // ---- derived -----------------------------------------------------------
 
-    fun isConfigured(): Boolean =
-        baseUrl().isNotBlankJava() && model().isNotBlankJava() &&
+    fun isConfigured(): Boolean {
+        val baseReady = baseUrl().isNotBlankJava()
+        val modelReady = model().isNotBlankJava()
+
+        if (provider() == PROV_LM_STUDIO) {
+            return baseReady && modelReady
+        }
+
+        return baseReady && modelReady &&
             (apiKey().isNotBlankJava() || apiKeys().isNotEmpty())
+    }
 
     fun isAnthropic(): Boolean =
         LlmClient.PROTOCOL_ANTHROPIC == LlmClient.resolveProtocol(provider(), baseUrl(), model())
@@ -337,6 +367,7 @@ class Prefs(context: Context) {
         const val PROV_AUTO = "auto"
         const val PROV_GEMINI = "gemini"
         const val PROV_OPENAI = "openai"
+        const val PROV_LM_STUDIO = "lmstudio"
 
         const val THEME_SYSTEM = "system"
         const val THEME_LIGHT = "light"

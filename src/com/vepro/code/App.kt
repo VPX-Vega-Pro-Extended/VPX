@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
-import android.util.Log
 import java.util.Locale
 import kotlin.system.exitProcess
 
@@ -17,7 +16,7 @@ import kotlin.system.exitProcess
  * The app draws its whole UI in code and talks to many different, sometimes
  * misbehaving, LLM gateways, so no amount of local try/catch can rule out every
  * unforeseen throw on every OEM ROM. Without a last-resort handler, any such
- * throw shows the system "Vega keeps stopping" dialog and drops the user
+ * throw shows the system "VPX keeps stopping" dialog and drops the user
  * cold. This installs a default uncaught-exception handler that instead
  * relaunches the app cleanly — with a loop guard so a deterministic startup
  * crash cannot trap the user in an endless restart.
@@ -30,13 +29,24 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        VpxLogger.init(this)
+        VpxLogger.info(
+            "App",
+            "Application started"
+        )
+
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             // Always leave a trace first. Before Android 8 the FATAL EXCEPTION
             // line is logged by the default handler, so a handler that never
             // delegates would make field crashes invisible.
             try {
-                Log.e("Vega", "uncaught on " + thread.name, error)
+                VpxLogger.error(
+                    "App",
+                    "Uncaught exception on ${thread.name}",
+                    error
+                )
             } catch (ignored: Throwable) {
             }
             // Chat writes are asynchronous and this process is about to end on

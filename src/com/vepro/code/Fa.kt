@@ -25,7 +25,7 @@ import android.content.Context
  *
  * ### What is NOT translated
  *
- * The product name. `APP_NAME` is "Vega Agent" in both languages, as are the
+ * The product name. `APP_NAME` is "VPX Agent" in both languages, as are the
  * protocol names and the version string — they are identifiers, not prose.
  *
  * ### This file is about the INTERFACE
@@ -93,7 +93,7 @@ object Fa {
     val APPROVE_RUN: String get() = if (farsi) "تأیید و اجرا" else "Approve and run"
     val APPROVE_SUBTITLE: String get() = if (farsi) "دستیار می\u200cخواهد این عملیات را اجرا کند" else "The assistant wants to run this operation"
     val APPROVE_TITLE: String get() = if (farsi) "تأیید عملیات" else "Approve operation"
-    val APP_NAME: String get() = "Vega Agent"
+    val APP_NAME: String get() = "VPX"
     val ATTACH_FILE: String get() = if (farsi) "افزودن فایل" else "Add file"
     val ATTACH_IMAGE: String get() = if (farsi) "افزودن عکس" else "Add image"
     val BROWSER_EMPTY: String get() = if (farsi) "این پوشه خالی است" else "This folder is empty"
@@ -115,6 +115,11 @@ object Fa {
     val EDIT: String get() = if (farsi) "اصلاح" else "Edit"
     val ERR_AUTH: String get() = if (farsi) "کلید API نامعتبر است یا منقضی شده." else "The API key is invalid or expired."
     val ERR_BADREQ: String get() = if (farsi) "درخواست نامعتبر است" else "Invalid request"
+    val ERR_PAYMENT_REQUIRED: String get() =
+        if (farsi)
+            "سرویس درخواست را نپذیرفت (HTTP 402). تنظیمات سرویس، مدل انتخاب‌شده و وضعیت اعتبار حساب Provider را بررسی کنید."
+        else
+            "The service rejected the request (HTTP 402). Check the provider settings, selected model, and account credit."
     val ERR_FORBIDDEN: String get() = if (farsi) "دسترسی رد شد. کلید API مجوز این عملیات را ندارد." else "Access denied. The API key is not authorized for this operation."
     val ERR_MAXSTEPS: String get() = if (farsi) "به بیشینه گام\u200cهای این نوبت رسیدم. اگر بخواهید، بگویید تا ادامه دهم." else "I reached the maximum steps for this turn. Ask me to continue if you want."
     val ERR_NOTFOUND: String get() = if (farsi) "آدرس یا نام مدل یافت نشد. تنظیمات را بررسی کنید." else "The URL or model was not found. Check your settings."
@@ -210,6 +215,11 @@ object Fa {
     val SET_KEY_EMPTY: String get() = if (farsi) "هنوز کلیدی اضافه نشده است" else "No keys added yet"
     val SET_KEY_FULL: String get() = if (farsi) "حداکثر ۵۰ کلید می‌توانید اضافه کنید" else "You can add up to 50 keys"
     val SET_KEY_DUP: String get() = if (farsi) "این کلید قبلاً اضافه شده است" else "This key is already added"
+    val SET_VOICE_TRIGGER: String get() = if (farsi) "فعال‌سازی صوتی" else "Voice activation"
+    val SET_VOICE_TRIGGER_PHRASE: String get() = if (farsi) "عبارت فعال‌سازی" else "Activation phrase"
+    val SET_VOICE_TRIGGER_PHRASE_H: String get() = if (farsi) "با گفتن این عبارت، VPX باز می‌شود." else "Say this phrase to open VPX."
+    val SET_VOICE_TRIGGER_ENABLE_H: String get() = if (farsi) "با خاموش کردن، شنود صوتی و دسترسی میکروفون VPX متوقف می‌شود." else "When disabled, VPX stops listening and releases the microphone."
+
     val SET_RESET: String get() = if (farsi) "بازنشانی تنظیمات" else "Reset settings"
     val SET_RESET_H: String get() = if (farsi) "همه تنظیمات به حالت اولیه برمی‌گردد؛ گفتگوها حفظ می‌شوند." else "Every setting returns to its default; your chats are kept."
     val SET_RESET_MSG: String get() = if (farsi) "این کار همه تنظیمات (از جمله کلیدهای API) را پاک می‌کند و قابل بازگشت نیست." else "This wipes all settings (including API keys) and cannot be undone."
@@ -219,7 +229,7 @@ object Fa {
     val SVC_CHANNEL: String get() = if (farsi) "اجرای وظیفه" else "Task execution"
     val SVC_DONE: String get() = if (farsi) "وظیفه کامل شد" else "Task completed"
     val SVC_TEXT: String get() = if (farsi) "وظیفه در پس\u200cزمینه اجرا می\u200cشود" else "Task running in the background"
-    val SVC_TITLE: String get() = if (farsi) "Vega Agent در حال کار است" else "Vega Agent is working"
+    val SVC_TITLE: String get() = if (farsi) "VPX درحال ساییدن موبایل شماست!" else "VPX Agent is working"
     val TAGLINE: String get() = if (farsi) "دستیار کدنویسی هوشمند روی دستگاه شما" else "Your on-device intelligent coding assistant"
     val SET_THEME: String get() = if (farsi) "پوسته (تم)" else "Theme"
     val SET_THEME_H: String get() = if (farsi) "از تم سیستم پیروی کنید یا حالت روشن/تاریک را انتخاب کنید." else "Follow the system theme or choose light/dark mode."
@@ -282,7 +292,7 @@ object Fa {
     val WF_LIVE: String get() = if (farsi) "در حال اجرا" else "Live"
     val WF_HISTORY: String get() = if (farsi) "پایان‌یافته" else "Finished"
     val CHAT_MENU_TITLE: String get() = if (farsi) "گفتگو" else "Conversation"
-    val SET_VERSION: String get() = "v1"
+    val SET_VERSION: String get() = "V2 Pro"
     val PERM_TITLE: String get() = if (farsi) "دسترسی به فایل‌ها" else "File access"
     val PRE_NO_KEY: String get() = if (farsi) "کلید API تنظیم نشده است. بدون آن هیچ درخواستی فرستاده نمی‌شود." else "No API key is set. Nothing can be sent without one."
     val PRE_NO_MODEL: String get() = if (farsi) "نام مدل خالی است." else "The model name is empty."
@@ -300,6 +310,8 @@ object Fa {
     val SET_KEY_PLAIN: String get() = if (farsi) "این کلید بدون رمزگذاری سخت‌افزاری ذخیره شده است." else "This key is stored without hardware encryption."
     val SET_SUBTITLE: String get() = if (farsi) "سرویس، مدل و رفتار دستیار" else "Endpoint, model and how the agent works"
     val SET_ABOUT: String get() = if (farsi) "درباره" else "About"
+    val SET_LOG: String get() = if (farsi) "گزارش و عیب‌یابی" else "Logs & diagnostics"
+    val SET_LOG_H: String get() = if (farsi) "گزارش اجرای برنامه را برای بررسی خطاها مشاهده یا ارسال کنید." else "View or send app logs to help diagnose problems."
     val SET_REASONING: String get() = if (farsi) "استدلال" else "Reasoning"
     val SET_TOOLS: String get() = if (farsi) "ابزارها و دسترسی‌ها" else "Tools and access"
     val SET_GENERATION: String get() = if (farsi) "تولید پاسخ" else "Generation"
@@ -354,7 +366,7 @@ object Fa {
     val CHAT_EARLIER: String get() = if (farsi) "نمایش پیام‌های پیشین" else "Show earlier messages"
     val CHAT_HIDDEN_N: String get() = if (farsi) "%s پیام پیشین" else "%s earlier messages"
     val BATT_AUTOSTART: String get() = if (farsi) "اجازهٔ اجرای خودکار" else "Allow autostart"
-    val BATT_AUTOSTART_MSG: String get() = if (farsi) "سازندهٔ گوشی شما جدا از تنظیم خود اندروید، کار در پس‌زمینه را هم محدود می‌کند. صفحهٔ سازنده را باز کنید و به Vega اجازهٔ اجرای خودکار بدهید، وگرنه کارهای طولانی باز هم قطع می‌شوند." else "Your phone's manufacturer also blocks background work separately from Android's own setting. Open the manufacturer's screen and allow Vega to start on its own, or long tasks will still be killed."
+    val BATT_AUTOSTART_MSG: String get() = if (farsi) "سازندهٔ گوشی شما جدا از تنظیم خود اندروید، کار در پس‌زمینه را هم محدود می‌کند. صفحهٔ سازنده را باز کنید و به VPX اجازهٔ اجرای خودکار بدهید، وگرنه کارهای طولانی باز هم قطع می‌شوند." else "Your phone's manufacturer also blocks background work separately from Android's own setting. Open the manufacturer's screen and allow VPX to start on its own, or long tasks will still be killed."
     val BATT_OPEN: String get() = if (farsi) "باز کردن تنظیمات" else "Open settings"
     val ERR_NO_TEXT: String get() = if (farsi) "سرویس پاسخی برگرداند که هیچ متنی در آن نبود." else "The server returned a JSON response with no text in it."
     val ERR_EMPTY_REPLY: String get() = if (farsi) "سرویس پاسخ خالی برگرداند. دوباره تلاش نشد تا همان درخواست دو بار محاسبه نشود." else "The server returned an empty response. It was not retried, so the same request is not billed twice."

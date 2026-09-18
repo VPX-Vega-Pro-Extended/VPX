@@ -137,7 +137,12 @@ class AgentEngine(
         // silence, so a mistake that is knowable in advance must never be paid for
         // at that price. See [Preflight] — it fires only on the certain cases.
         if (depth == 0) {
-            val problem = Preflight.check(prefs.baseUrl(), prefs.apiKey(), prefs.model())
+            val problem = Preflight.check(
+                prefs.baseUrl(),
+                prefs.apiKey(),
+                prefs.model(),
+                prefs.provider()
+            )
             if (problem != null) {
                 trail?.settle(System.currentTimeMillis())
                 val notice = Message("assistant", problem.message + "\n\n" + problem.hint)
@@ -705,8 +710,11 @@ class AgentEngine(
                 // investigate to write a decent brief, and briefing is the skill
                 // this mode is really about. Depth > 0 is exempt, because that IS
                 // the sub-agent.
-                val mustDelegate = depth == 0 && !planBlocked &&
-                    prefs.dynamicWorkflow() && Tools.isMutating(call.name)
+                val mustDelegate = depth == 0 &&
+                    !planBlocked &&
+                    prefs.dynamicWorkflow() &&
+                    TASK_TOOL != call.name &&
+                    Tools.isMutating(call.name)
                 val mode = prefs.mode()
 
                 callback.onToolRunning(call.name, summarizeArgs(call.args))
@@ -1879,8 +1887,7 @@ class AgentEngine(
         val workspaceRoot = Tools.externalRoot(context).absolutePath
 
         val sb = StringBuilder()
-        sb.append("You are **Vega Agent**, an elite on-device AI coding & file agent for Android — as capable, precise and persistent as the best coding agents (OpenAI Codex, Claude Code). ")
-        sb.append("You take initiative, use tools to inspect and modify the file system, browse the web, download files, and carry tasks through to completion without giving up. Be concise, direct and genuinely helpful.\n\n")
+        sb.append("I am VPX (Vega Pro Extended), an advanced on-device AI coding and file agent for Android. Built upon the foundation of Vega and developed as an independent extension, I proudly acknowledge and respect the original Vega project and its copyright.");        sb.append("You take initiative, use tools to inspect and modify the file system, browse the web, download files, and carry tasks through to completion without giving up. Be concise, direct and genuinely helpful.\n\n")
         sb.append("# How to work (be smart and precise)\n")
         sb.append("- Think carefully before every response and tool call. Always use the provider's reasoning channel when available; higher reasoning levels require broader analysis, alternatives and verification before acting.\n")
         sb.append("- Work step by step, ONE tool per turn, and use each tool result to decide the next step. Prefer verifying (read before you edit, check a link before you download) over guessing.\n")
@@ -1898,10 +1905,27 @@ class AgentEngine(
         sb.append("\n")
         sb.append("You can access only this workspace with file tools; never claim access to all device files.\n\n")
         sb.append("# Tool use — STRICT format\nTo call a tool, output ONE fenced ```json code block whose ONLY content is a single JSON object with \"tool\" and \"args\". After the block, the app runs the tool and AUTOMATICALLY sends you the result (a message starting with [TOOL RESULT: ...]) and calls you again — so you keep going turn after turn until the job is finished.\nHARD RULES (breaking these silently aborts the run):\n1. The JSON must be valid: no comments, no // notes, no trailing text after the closing brace, no markdown inside it.\n2. Put NOTHING after the closing ``` of the tool block. Say any short preamble BEFORE the block.\n3. URLs and paths must contain NO spaces. Never write a domain like \"site. com\"; write \"site.com\". Percent-encode real spaces as %20.\n4. Exactly ONE tool call per turn.\n\n# Keep going until done (critical)\n- After a [TOOL RESULT], DECIDE THE NEXT STEP and act — do NOT end your turn just because one tool finished. The loop continues automatically.\n- Only produce a final answer with NO json block when the WHOLE task is actually complete (e.g. the file is downloaded and you've confirmed it). A final answer ends the run.\n- Never reply with an empty or filler message. If you found a verified download link ([OK ✓]) in a previous result, your very next turn MUST be a download_file call with that exact link — do not re-search, re-open the page, or stop.\n- If you are ever unsure what to do next, take the most reasonable next action rather than stopping.\n\n")
+        sb.append(
+            "# Self-repair sessions\n" +
+            "- The self_repair tool provides an isolated sandbox for experimental diagnosis and repair.\n" +
+            "- Use self_repair when the user explicitly asks for self-repair, autonomous debugging, or safe experimental code repair.\n" +
+            "- Workflow: create -> inspect/read -> diagnose -> write -> execute/validate -> inspect results -> repeat if needed -> destroy when finished.\n" +
+            "- ALWAYS use the exact session_id returned by create for every later self_repair operation.\n" +
+            "- The sandbox is isolated: edits there NEVER modify the original workspace.\n" +
+            "- NEVER claim a repair, test, build, validation, or command succeeded unless the corresponding tool result explicitly proves it.\n" +
+            "- For shell commands, use self_repair operation=execute. Do NOT invent unavailable tools such as chmod.\n" +
+            "- execute accepts a command ARRAY, for example [\"sh\", \"validate.sh\"] or [\"./gradlew\", \"test\"].\n" +
+            "- Prefer invoking interpreters directly instead of chmod when possible, e.g. [\"sh\", \"script.sh\"] rather than chmod +x.\n" +
+            "- Basic self_repair validate only performs structural checks and DOES NOT prove Kotlin compilation or tests passed.\n" +
+            "- If execute fails, inspect the actual stdout/stderr, diagnose the cause, and continue repairing. Do not fabricate a successful result.\n" +
+            "- Do not create fake validation scripts merely to report expected results. Run real project commands when available.\n" +
+            "- Before declaring success, perform the strongest available verification: compile, test, lint, or the user's actual reproduction command.\n\n"
+        )
         sb.append("Example:\n```json\n{\"tool\": \"read_file\", \"args\": {\"path\": \"")
         sb.append(workspaceRoot)
         sb.append("/Download/notes.txt\"}}\n```\n\n")
         sb.append("# Available tools\n")
+        sb.append("- self_repair { operation, session_id?, path?, content?, command?, timeout_ms? } — isolated code-repair sandbox. Operations: create (creates a sandbox copy and returns session_id), read (session_id + path), write (session_id + path + content), mkdir (session_id + path), list (session_id), validate (session_id; structural checks only), execute (session_id + command array + optional timeout_ms), sessions (lists active sessions), destroy (session_id). ALWAYS call create first and reuse the exact returned session_id. All file changes happen only inside the sandbox; the original workspace is NEVER modified. Use execute for real build/test commands when available, and inspect stdout/stderr before deciding the result.\n")
         sb.append("- list_dir { path } — list a directory's contents.\n")
         sb.append("- read_file { path, start_line?, end_line?, max_bytes? } — read a WINDOW of a text file. Returns at most 400 lines per call and ends with either [END OF FILE] or an explicit \"continue with read_file {start_line: N}\" hint — follow that hint to walk a long file chunk by chunk. Read the part you need, not the whole file. Every line comes prefixed with its line number and a TAB (e.g. `128<TAB>    val x = 1`); that prefix is display only — NEVER include it in old_string.\n")
         sb.append("- write_file { path, content } — creates a NEW file. It REFUSES to touch a path that already exists (you get an ERROR telling you to use edit_file). Only if replacing an entire existing file is genuinely the task, repeat the call with overwrite:true. (modifying)\n")
@@ -1918,6 +1942,11 @@ class AgentEngine(
         sb.append("- read_archive_entry { path, entry, max_bytes? } — read one text entry from an archive.\n")
         sb.append("- extract_archive_entry { path, entry, to } — extract ONE entry (including binary files like images) out of a zip/apk/jar to a destination file or folder; use this to pull an image, icon or asset OUT of an APK. (modifying)\n")
         sb.append("- read_pdf { path, max_bytes? } — extract readable text from a PDF file.\n")
+        sb.append("- open_app { app_name, package? } — open an installed Android app by its visible name. Prefer app_name (for example: \"Instagram\", \"WhatsApp\", \"Chrome\"). package is optional and only needed when the exact package name is known.\n")
+        sb.append("- process_list {} — list currently running application processes with PID, process name and importance.\n")
+        sb.append("- kill_process { pid? , process_name? } — terminate a running process when Android permits it. Never attempt to kill VPX's own process.\n")        
+        sb.append("- phone_info {} — get device information including manufacturer, model, Android version, SDK, CPU ABI, CPU cores, RAM, storage, battery, display resolution and uptime.\n")
+        sb.append("- app_list {} — list installed applications with name, package name, version, version code, system/user type and enabled state.\n")
         sb.append("- download_file { url, filename?, referer? } — download a file from the internet straight into the phone's Downloads folder (music, images, videos, documents, any file). Shows live progress and reports the saved path. (modifying)\n")
         if (prefs.webSearch()) {
             sb.append("- web_search { query } — search the web.\n")
@@ -2766,6 +2795,10 @@ class AgentEngine(
             if (raw == null) {
                 return null
             }
+
+            // XML-style tool calls emitted by some local/open models.
+            parseXmlToolCall(raw)?.let { return it }
+
             val candidates = ArrayList<String>()
             // 1) fenced blocks — capture the whole body, then dig the JSON out of it
             //    (robust to trailing junk like "}} // remove spaces")
@@ -2784,6 +2817,56 @@ class AgentEngine(
             }
             return null
         }
+
+        /**
+        * Parses XML-style tool calls emitted by some models.
+        *
+        * Example:
+        * <tool_call>task
+        * <arg_key>tasks</arg_key>
+        * <arg_value>[...]</arg_value>
+        * </tool_call>
+        */
+        private fun parseXmlToolCall(raw: String): ToolCall? {
+            val match = Regex(
+                """(?s)<tool_call>\s*([A-Za-z0-9_.:-]+)\s*(.*?)</tool_call>"""
+            ).find(raw) ?: return null
+
+            val name = match.groupValues[1].trimJava()
+            val body = match.groupValues[2]
+
+            if (name.isEmpty() || !Tools.isKnownTool(name)) {
+                return null
+            }
+
+            val args = JSONObject()
+
+            val argPattern = Regex(
+                """(?s)<arg_key>\s*(.*?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*</arg_value>"""
+            )
+
+            for (arg in argPattern.findAll(body)) {
+                val key = arg.groupValues[1].trimJava()
+                val value = arg.groupValues[2].trimJava()
+
+                if (key.isEmpty()) {
+                    continue
+                }
+
+                try {
+                    args.put(key, JSONArray(value))
+                } catch (_: Exception) {
+                    try {
+                        args.put(key, JSONObject(value))
+                    } catch (_: Exception) {
+                        args.put(key, value)
+                    }
+                }
+            }
+
+            return ToolCall(name, args)
+        }
+
 
         /**
          * Scans text for balanced {...} objects, respecting string literals and
@@ -3008,7 +3091,11 @@ class AgentEngine(
             // valid or not. The engine handles a broken call by asking for a repair
             // (see looksLikeAttemptedCall), so hiding it costs nothing — and the
             // user never sees the machinery either way.
-            var stripped = FENCE.replace(raw) { match ->
+            var stripped = Regex(
+                """(?s)<tool_call>\s*[A-Za-z0-9_.:-]+\s*.*?</tool_call>"""
+            ).replace(raw, "")
+
+            stripped = FENCE.replace(stripped) { match ->
                 val inner = match.groupValues[1]
                 if (tryParse(inner) != null || looksLikeCallBody(inner)) "" else match.value
             }

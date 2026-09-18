@@ -45,7 +45,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * The chat screen — the Vega monochrome UI.
+ * The chat screen — the VPX monochrome UI.
  *
  * The file splits cleanly into three layers, and they are maintained as three
  * layers:
@@ -351,6 +351,12 @@ class MainActivity : Activity() {
 
     override fun onCreate(bundle: Bundle?) {
         super.onCreate(bundle)
+
+        VpxLogger.info(
+            "MainActivity",
+            "onCreate restored=${bundle != null}"
+        )
+
         prefs = Prefs(this)
         NetworkPolicy.applyPrefs(prefs)
         Fa.apply(this)
@@ -368,6 +374,8 @@ class MainActivity : Activity() {
         applyWindowChrome()
         buildUi()
         buildListener()
+
+        ensureVoiceTrigger()
 
         val liveId = if (AgentBus.isBusy()) AgentBus.activeChatId else null
         val live = AgentBus.liveChat
@@ -582,7 +590,7 @@ class MainActivity : Activity() {
         rootFrame.layoutDirection = Lang.direction(this)
         rootFrame.setBackgroundColor(Theme.BG)
 
-        // A faint Vega star behind the conversation.
+        // A faint VPX star behind the conversation.
         //
         // Added FIRST so it sits at the bottom of the z-order: every message,
         // card and control draws over it, and it is not clickable, so it can
@@ -1494,7 +1502,7 @@ class MainActivity : Activity() {
         heading.setTextColor(Theme.TEXT)
         heading.setSingleLine(true)
         heading.ellipsize = TextUtils.TruncateAt.END
-        // "Vega Agent" is Latin in BOTH languages, so a first-strong resolve
+        // "VPX Agent" is Latin in BOTH languages, so a first-strong resolve
         // would flip the view LTR and strand it against the drawer's far edge in
         // Persian. Pinning the alignment to the layout start keeps it put.
         Ui.rowLabel(heading)
@@ -6936,6 +6944,33 @@ class MainActivity : Activity() {
     // Permissions + lifecycle
     // =====================================================================
 
+    private fun ensureVoiceTrigger() {
+        if (!Prefs(this).voiceTriggerEnabled()) {
+            return
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            VoiceTriggerService.start(this)
+            return
+        }
+
+        if (checkSelfPermission("android.permission.RECORD_AUDIO") ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            VoiceTriggerService.start(this)
+            return
+        }
+
+        try {
+            requestPermissions(
+                arrayOf("android.permission.RECORD_AUDIO"),
+                REQ_AUDIO
+            )
+        } catch (e: Exception) {
+        }
+    }
+
+
     private fun requestNotifPermission() {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission("android.permission.POST_NOTIFICATIONS") !=
@@ -7016,17 +7051,41 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == REQ_AUDIO) {
+            if (
+                grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED &&
+                Prefs(this).voiceTriggerEnabled()
+            ) {
+                VoiceTriggerService.start(this)
+            }
+            return
+        }
+
         updatePermBanner()
     }
 
     override fun onStart() {
         super.onStart()
+
+        VpxLogger.debug(
+            "MainActivity",
+            "onStart"
+        )
+
         AgentBus.listener = uiListener
         reconcileRunningState()
     }
 
     override fun onStop() {
         super.onStop()
+
+        VpxLogger.debug(
+            "MainActivity",
+            "onStop"
+        )
+
         if (AgentBus.listener === uiListener) {
             AgentBus.listener = null
         }
@@ -7115,6 +7174,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+
+        VpxLogger.debug(
+            "MainActivity",
+            "onResume"
+        )
         // Re-attach immediately after returning from another app. OEMs can pause
         // and recreate the Activity while the foreground service keeps running.
         AgentBus.listener = uiListener
@@ -7170,7 +7234,13 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        VpxLogger.debug(
+            "MainActivity",
+            "onDestroy"
+        )
+
         super.onDestroy()
+
         // Plain dialogs outlive their Activity; dismiss them or leak the window.
         Sheet.dismissAll()
         dismissChatMenu()
@@ -7253,6 +7323,7 @@ class MainActivity : Activity() {
         private const val REQ_MANAGE = 1002
         private const val REQ_PERMS = 1003
         private const val REQ_NOTIF = 1004
+        private const val REQ_AUDIO = 1005
 
         /** Bundle key for the open chat id across an Activity save/restore. */
         private const val STATE_CHAT_ID = "vepro_chat_id"

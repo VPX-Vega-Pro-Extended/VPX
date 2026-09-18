@@ -13,7 +13,7 @@ import android.widget.TextView
 import java.io.File
 
 /**
- * File picker sheet — Vega monochrome restyle (behaviour unchanged).
+ * File picker sheet — VPX monochrome restyle (behaviour unchanged).
  *
  * The tinted 34dp badges are gone. An entry is now a plain 20dp outline glyph in
  * [Theme.TEXT_MUTED] beside a [Ui.Type.BODY] name, sitting directly on the

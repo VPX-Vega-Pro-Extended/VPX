@@ -531,6 +531,18 @@ object CoreRegressionTests {
                 "openai", true
             )
         )
+        eq(
+            "http://127.0.0.1:1234/v1/chat/completions",
+            LlmClient.endpointFor(
+                "http://127.0.0.1:1234", "my-model", "lmstudio", false
+            )
+        )
+        eq(
+            "http://127.0.0.1:1234/v1/chat/completions",
+            LlmClient.endpointFor(
+                "http://127.0.0.1:1234/v1", "my-model", "lmstudio", false
+            )
+        )
     }
 
     private fun testProviderBodies() {

@@ -2,6 +2,7 @@ package com.vepro.code
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -104,7 +105,7 @@ import java.util.Locale
  * "rejected" are opposites, not two amounts of one thing, and lightness alone
  * cannot say which is which.
  *
- * The Vega mark appears exactly ONCE in the whole app, in the About group at
+ * The VPX mark appears exactly ONCE in the whole app, in the About group at
  * the bottom of this screen. The chat screen shows no logo at all.
  */
 class SettingsActivity : Activity() {
@@ -126,9 +127,11 @@ class SettingsActivity : Activity() {
     private var etKey: EditText? = null
     private var etMaxTok: EditText? = null
     private var etTimeout: EditText? = null
+    private var keyFieldRow: View? = null
     private var etModel: EditText? = null
     private var etNewKey: EditText? = null
     private var etSys: EditText? = null
+private var etVoiceTrigger: EditText? = null
 
     private var keysBox: LinearLayout? = null
     private var tvKeyCount: TextView? = null
@@ -136,7 +139,9 @@ class SettingsActivity : Activity() {
     private var swWeb: Switch? = null
     private var swWorkflow: Switch? = null
     private var swLocalNet: Switch? = null
+    private var swVoiceTrigger: Switch? = null
     private var tvTemp: TextView? = null
+
     private var tvTestStatus: TextView? = null
     private var tvConnSummary: TextView? = null
     private var tvConnProblem: TextView? = null
@@ -385,6 +390,43 @@ class SettingsActivity : Activity() {
         cardNote(custom, Fa.SET_CUSTOM_H)
         panel.addView(custom)
 
+        // --- voice activation -------------------------------------------------
+        panel.addView(Ui.sectionLabel(this, Fa.SET_VOICE_TRIGGER))
+        val voice = card()
+        val voiceBlock = cardBlock(voice)
+
+        swVoiceTrigger = toggleRow(
+            voiceBlock,
+            "🎙",
+            Fa.SET_VOICE_TRIGGER,
+            Fa.SET_VOICE_TRIGGER_ENABLE_H,
+            prefs.voiceTriggerEnabled()
+        )
+
+        val voicePhrase = EditText(this)
+        voicePhrase.typeface = Theme.ui()
+        etVoiceTrigger = voicePhrase
+        voicePhrase.setText(prefs.voiceTriggerPhrase())
+        voicePhrase.hint = Fa.SET_VOICE_TRIGGER_PHRASE
+        voicePhrase.setHintTextColor(Theme.TEXT_FAINT)
+        voicePhrase.setTextColor(Theme.TEXT)
+        voicePhrase.textSize = Ui.Type.LABEL
+        voicePhrase.background = fieldBg(false)
+        voicePhrase.setOnFocusChangeListener { _, hasFocus ->
+            voicePhrase.background = fieldBg(hasFocus)
+        }
+
+        val voicePad = Theme.dp(this, Ui.Space.M)
+        voicePhrase.setPadding(voicePad, voicePad, voicePad, voicePad)
+        voicePhrase.textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+        voicePhrase.gravity = Gravity.CENTER_VERTICAL or Gravity.START
+        voicePhrase.maxLines = 1
+        voicePhrase.inputType = InputType.TYPE_CLASS_TEXT
+
+        voiceBlock.addView(voicePhrase, Ui.matchWrap())
+        cardNote(voice, Fa.SET_VOICE_TRIGGER_PHRASE_H)
+        panel.addView(voice)
+
         // --- appearance -------------------------------------------------------
         //
         // Below the working settings, not above them. It is the one group here
@@ -417,6 +459,9 @@ class SettingsActivity : Activity() {
         // --- about ----------------------------------------------------------
         panel.addView(Ui.sectionLabel(this, Fa.SET_ABOUT))
         panel.addView(aboutSection())
+
+        panel.addView(Ui.sectionLabel(this, Fa.SET_LOG))
+        panel.addView(logSection())
 
         installInstantTextSettings()
         setContentView(scroll)
@@ -529,50 +574,79 @@ class SettingsActivity : Activity() {
 
         val wrap = HorizontalScrollView(this)
         wrap.isHorizontalScrollBarEnabled = false
-        // The SCROLLER's direction, said explicitly and not left to inherit.
-        //
-        // A HorizontalScrollView reads its own resolved direction on first layout
-        // and, when it is RTL, flips a zero scroll offset to the far end so the
-        // strip opens on its FIRST child. Direction therefore has to agree between
-        // the scroller and the row inside it: a mirrored row inside an unmirrored
-        // scroller would open on OpenAI's chip scrolled off the right edge, with
-        // "Together" showing instead.
         wrap.layoutDirection = Lang.direction(this)
+
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.layoutDirection = Lang.direction(this)
-        row.setPaddingRelative(Theme.dp(this, Ui.Space.L), 0, Theme.dp(this, Ui.Space.L), 0)
+        row.setPaddingRelative(
+            Theme.dp(this, Ui.Space.L),
+            0,
+            Theme.dp(this, Ui.Space.L),
+            0
+        )
 
         val presets = arrayOf(
-            arrayOf(Fa.SET_PROTO_OPENAI, "https://api.openai.com/v1", Prefs.PROV_OPENAI, "gpt-4o"),
+            arrayOf("LM Studio", "", Prefs.PROV_LM_STUDIO, ""),
             arrayOf(
-                Fa.SET_PROTO_ANTHRO, "https://api.anthropic.com/v1", Prefs.PROV_ANTHRO,
+                Fa.SET_PROTO_OPENAI,
+                "https://api.openai.com/v1",
+                Prefs.PROV_OPENAI,
+                "gpt-4o"
+            ),
+            arrayOf(
+                Fa.SET_PROTO_ANTHRO,
+                "https://api.anthropic.com/v1",
+                Prefs.PROV_ANTHRO,
                 "claude-sonnet-4-5"
             ),
             arrayOf(
-                Fa.SET_PROTO_GEMINI, "https://generativelanguage.googleapis.com/v1beta",
-                Prefs.PROV_GEMINI, "gemini-2.5-flash"
+                Fa.SET_PROTO_GEMINI,
+                "https://generativelanguage.googleapis.com/v1beta",
+                Prefs.PROV_GEMINI,
+                "gemini-2.5-flash"
             ),
-            arrayOf("OpenRouter", "https://openrouter.ai/api/v1", Prefs.PROV_OPENAI, "openai/gpt-4o"),
             arrayOf(
-                "Groq", "https://api.groq.com/openai/v1", Prefs.PROV_OPENAI,
+                "OpenRouter",
+                "https://openrouter.ai/api/v1",
+                Prefs.PROV_OPENAI,
+                "openai/gpt-4o"
+            ),
+            arrayOf(
+                "Groq",
+                "https://api.groq.com/openai/v1",
+                Prefs.PROV_OPENAI,
                 "llama-3.3-70b-versatile"
             ),
-            arrayOf("DeepSeek", "https://api.deepseek.com", Prefs.PROV_OPENAI, "deepseek-chat"),
             arrayOf(
-                "Together", "https://api.together.xyz/v1", Prefs.PROV_OPENAI,
+                "DeepSeek",
+                "https://api.deepseek.com",
+                Prefs.PROV_OPENAI,
+                "deepseek-chat"
+            ),
+            arrayOf(
+                "Together",
+                "https://api.together.xyz/v1",
+                Prefs.PROV_OPENAI,
                 "meta-llama/Llama-3.3-70B-Instruct-Turbo"
             )
         )
-        // The chip matching the saved base URL renders as ACTIVE — a solid
-        // ACCENT pill with an ON_ACCENT label, the same "chosen" treatment the
-        // segmented tracks use — so the live provider is obvious at a glance.
+
         val activeBase = prefs.baseUrl().trimJava()
+        val activeProvider = prefs.provider()
+
         for (i in presets.indices) {
             val preset = presets[i]
-            val active = preset[1] == activeBase
+
+            val active = if (preset[2] == Prefs.PROV_LM_STUDIO) {
+                activeProvider == Prefs.PROV_LM_STUDIO
+            } else {
+                preset[1] == activeBase
+            }
+
             val chip = Ui.row(this)
             chip.background = presetChipBg(active)
+
             val chipPadH = Theme.dp(this, 14.0f)
             val chipPadV = Theme.dp(this, 9.0f)
             chip.setPadding(chipPadH, chipPadV, chipPadH, chipPadV)
@@ -580,49 +654,68 @@ class SettingsActivity : Activity() {
 
             val dot = View(this)
             dot.background = Theme.circle(presetDot(active))
+
             val dotSize = Theme.dp(this, 7.0f)
             val dotLp = LinearLayout.LayoutParams(dotSize, dotSize)
             dotLp.marginEnd = Theme.dp(this, 7.0f)
             chip.addView(dot, dotLp)
 
             val label = Ui.text(
-                this, preset[0], Ui.Type.META,
+                this,
+                preset[0],
+                Ui.Type.META,
                 if (active) Theme.ON_ACCENT else Theme.TEXT,
                 if (active) Theme.uiSemi() else Theme.uiMedium()
             )
             label.setSingleLine(true)
-            // singleLine without ellipsize clips mid-glyph, so a long provider name
-            // ended in half a letter rather than an ellipsis.
             label.ellipsize = android.text.TextUtils.TruncateAt.END
             chip.addView(label, Ui.wrapWrap())
 
             val chipLp = Ui.wrapWrap()
             chipLp.marginEnd = Theme.dp(this, Ui.Space.S)
+
             chip.setOnClickListener {
-                etBase?.setText(preset[1])
-                etModel?.setText(preset[3])
                 selProtocol = preset[2]
                 prefs.setProvider(selProtocol)
-                prefs.setBaseUrl(preset[1])
-                prefs.setModel(preset[3])
+
+                if (selProtocol == Prefs.PROV_LM_STUDIO) {
+                    // LM Studio: local OpenAI-compatible API, no API key required.
+                    etBase?.setText("http://127.0.0.1:1234")
+                    etModel?.setText("")
+                    etKey?.setText("")
+
+                    prefs.setBaseUrl("http://127.0.0.1:1234")
+                    prefs.setModel("")
+                    prefs.setApiKey("")
+
+                    keyFieldRow?.visibility = View.GONE
+                } else {
+                    etBase?.setText(preset[1])
+                    etModel?.setText(preset[3])
+
+                    prefs.setBaseUrl(preset[1])
+                    prefs.setModel(preset[3])
+
+                    keyFieldRow?.visibility = View.VISIBLE
+                }
+
                 refreshProto()
-                // All three values just changed, so the last verdict was about a
-                // different endpoint. Clearing it is the same reset the old card
-                // did with `tvTestStatus?.text = ""`, plus the pip.
                 resetConnectionState()
                 refreshPresetChips()
             }
+
             Ui.pressScale(chip)
             presetChipViews.add(chip)
             presetChipData.add(preset)
             row.addView(chip, chipLp)
         }
+
         wrap.addView(row)
         block.addView(wrap, Ui.matchWrap())
         block.layoutParams = Ui.matchWrap()
+
         return block
     }
-
     /**
      * One definition of the preset chip's surface, used by both the initial
      * build and every refresh — they used to be two copies that could (and did)
@@ -828,7 +921,7 @@ class SettingsActivity : Activity() {
         line.append(SEP).append(protocol)
         tvConnSummary?.text = line.toString()
 
-        val problem = Preflight.check(base, key, model)
+        val problem = Preflight.check(base, key, model, prefs.provider())
         val view = tvConnProblem
         val summary = tvConnSummary
         if (view != null && summary != null) {
@@ -881,24 +974,41 @@ class SettingsActivity : Activity() {
         paintConnDot(Theme.TEXT_FAINT)
         refreshConnectionCard()
     }
-
+    
     private fun refreshPresetChips() {
-        val activeBase = etBase?.text?.toString()?.trimJava() ?: prefs.baseUrl().trimJava()
+        val activeBase =
+            etBase?.text?.toString()?.trimJava() ?: prefs.baseUrl().trimJava()
+
+        val activeProvider = prefs.provider()
+
         for (i in presetChipViews.indices) {
             if (i >= presetChipData.size) {
                 break
             }
+
             val chip = presetChipViews[i]
-            val active = presetChipData[i][1] == activeBase
+            val preset = presetChipData[i]
+
+            val active = if (preset[2] == Prefs.PROV_LM_STUDIO) {
+                activeProvider == Prefs.PROV_LM_STUDIO
+            } else {
+                preset[1] == activeBase
+            }
+
             chip.background = presetChipBg(active)
+
             // child 0 is the bullet, child 1 the label
             val bullet = chip.getChildAt(0)
             if (bullet != null) {
                 bullet.background = Theme.circle(presetDot(active))
             }
+
             val label = chip.getChildAt(1) as? TextView
-            label?.setTextColor(if (active) Theme.ON_ACCENT else Theme.TEXT)
-            label?.typeface = if (active) Theme.uiSemi() else Theme.uiMedium()
+            label?.setTextColor(
+                if (active) Theme.ON_ACCENT else Theme.TEXT
+            )
+            label?.typeface =
+                if (active) Theme.uiSemi() else Theme.uiMedium()
         }
     }
 
@@ -1356,7 +1466,7 @@ class SettingsActivity : Activity() {
      * "Persian" and never "انگلیسی" — because this is the one control on the
      * screen whose job is to be legible to someone who cannot read the language
      * it is currently set to. An endonym is an identifier here, in the same
-     * category as `OpenAI` and `Vega Agent`, which is why the Persian cell is a
+     * category as `OpenAI` and `VPX Agent`, which is why the Persian cell is a
      * literal rather than a translated string: `Fa.SET_LANGUAGE_FA` renders as
      * "Persian" while the interface is English, which is exactly the label this
      * cell must not carry.
@@ -1528,6 +1638,7 @@ class SettingsActivity : Activity() {
         etMaxTok?.addTextChangedListener(watcher)
         etTimeout?.addTextChangedListener(watcher)
         etSys?.addTextChangedListener(watcher)
+        etVoiceTrigger?.addTextChangedListener(watcher)
         // These replace the feedback listener toggleRow() installs, so they have
         // to re-apply the haptic tick themselves — otherwise these three switches
         // would be the only ones in the app that flip silently.
@@ -1554,6 +1665,72 @@ class SettingsActivity : Activity() {
         swLocalNet?.setOnCheckedChangeListener { view, checked ->
             prefs.setAllowLocalNetwork(checked)
             Ui.tick(view)
+        }
+
+        swVoiceTrigger?.setOnCheckedChangeListener { view, checked ->
+            prefs.setVoiceTriggerEnabled(checked)
+            Ui.tick(view)
+
+            if (checked) {
+                if (
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                    checkSelfPermission("android.permission.RECORD_AUDIO") ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    VoiceTriggerService.start(this)
+                } else {
+                    requestPermissions(
+                        arrayOf("android.permission.RECORD_AUDIO"),
+                        REQ_VOICE_AUDIO
+                    )
+                }
+            } else {
+                VoiceTriggerService.stop(this)
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == REQ_VOICE_AUDIO) {
+            val granted =
+                grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+
+            if (granted && Prefs(this).voiceTriggerEnabled()) {
+                VoiceTriggerService.start(this)
+            } else if (!granted) {
+                prefs.setVoiceTriggerEnabled(false)
+                swVoiceTrigger?.setOnCheckedChangeListener(null)
+                swVoiceTrigger?.isChecked = false
+                swVoiceTrigger?.setOnCheckedChangeListener { view, checked ->
+                    prefs.setVoiceTriggerEnabled(checked)
+                    Ui.tick(view)
+
+                    if (checked) {
+                        if (
+                            Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                            checkSelfPermission("android.permission.RECORD_AUDIO") ==
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            VoiceTriggerService.start(this)
+                        } else {
+                            requestPermissions(
+                                arrayOf("android.permission.RECORD_AUDIO"),
+                                REQ_VOICE_AUDIO
+                            )
+                        }
+                    } else {
+                        VoiceTriggerService.stop(this)
+                    }
+                }
+            }
+            return
         }
     }
 
@@ -1592,6 +1769,7 @@ class SettingsActivity : Activity() {
             prefs.setTimeoutSeconds(timeout)
         }
         prefs.setSystemPrompt(etSys?.text?.toString()?.trimJava() ?: "")
+        prefs.setVoiceTriggerPhrase(etVoiceTrigger?.text?.toString()?.trimJava() ?: "")
         if (key != lastSavedKey) {
             // The save itself no longer fails when the keystore is unavailable — the
             // key is stored unencrypted instead, because refusing to save it left the
@@ -2286,9 +2464,10 @@ class SettingsActivity : Activity() {
     /**
      * The primary API key: the same card row as [field], except the trailing
      * control is an LTR island holding the masked input AND its reveal button.
-     */
-    private fun addKeyField(parent: LinearLayout) {
-        val box = Ui.row(this)
+    */
+        private fun addKeyField(parent: LinearLayout) {
+            val box = Ui.row(this)
+            keyFieldRow = box
         // An LTR island, like a code block: an API key is always Latin, so the
         // whole field — the text AND the reveal button — is laid out as one
         // left-to-right unit rather than inheriting the row's direction.
@@ -2327,7 +2506,17 @@ class SettingsActivity : Activity() {
         box.layoutParams = LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.5f
         )
-        parent.addView(Ui.cardRow(this, "key", Fa.SET_API_KEY, null, box, null))
+
+        val keyRow = Ui.cardRow(this, "key", Fa.SET_API_KEY, null, box, null)
+        keyFieldRow = keyRow
+        parent.addView(keyRow)
+
+        keyRow.visibility = if (prefs.provider() == Prefs.PROV_LM_STUDIO) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
+
     }
 
     /**
@@ -2409,7 +2598,7 @@ class SettingsActivity : Activity() {
     // =====================================================================
 
     /**
-     * The About group — and the ONE place the Vega mark appears inside the app.
+     * The About group — and the ONE place the VPX mark appears inside the app.
      * The chat screen deliberately shows no logo at all, so this row is where the
      * brand, the version and the project's two channels live. The mark is drawn
      * by [BrandMark] (vector paths, no raster resource) and takes its colour from
@@ -2418,31 +2607,128 @@ class SettingsActivity : Activity() {
     private fun aboutSection(): LinearLayout {
         val card = card()
 
-        val brandRow = Ui.cardRow(this, null, Fa.APP_NAME, Fa.SET_VERSION, null, null)
+        // ─────────────────────────────────────────────
+        // VPX Brand
+        // ─────────────────────────────────────────────
+
+        val brandRow = Ui.cardRow(
+            this,
+            null,
+            Fa.APP_NAME,
+            Fa.SET_VERSION,
+            null,
+            null
+        )
+
         val mark = ImageView(this)
         mark.setImageDrawable(BrandMark())
         mark.scaleType = ImageView.ScaleType.FIT_CENTER
-        mark.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        // Space.XL, the same box a cardRow glyph gets, with the same trailing gap.
-        //
-        // It was 40dp in a slot sized for 20dp, so the About row's leading edge sat
-        // 20dp further out than the two channel rows directly beneath it — the one
-        // misalignment on the screen, at the top of the last group.
+        mark.importantForAccessibility =
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO
+
         val markSize = Theme.dp(this, Ui.Space.XL)
-        val markLp = LinearLayout.LayoutParams(markSize, markSize)
-        markLp.marginEnd = Theme.dp(this, Ui.Space.L)
+
+        val markLp = LinearLayout.LayoutParams(
+            markSize,
+            markSize
+        )
+
+        markLp.marginEnd =
+            Theme.dp(this, Ui.Space.L)
+
         mark.layoutParams = markLp
-        // Index 0: cardRow was built WITHOUT a glyph, so the title stack is its
-        // first child and the mark takes the leading slot a glyph would have had.
-        // The params ride on the view because the three-argument
-        // addView(child, index, params) is not in the stubbed API surface.
-        brandRow.addView(mark, 0)
+
+        brandRow.addView(
+            mark,
+            0
+        )
+
         card.addView(brandRow)
+
         rowDivider(card, ROW_INSET)
-        card.addView(channelRow("Vega Enter", "https://t.me/VegaEnter"))
+
+        card.addView(
+            channelRow(
+                "vpx",
+                "سازنده",
+                "AAQ"
+            )
+        )
+
         rowDivider(card, ROW_INSET)
-        card.addView(channelRow("ArchiveTel", "https://t.me/ArchiveTell"))
+
+        card.addView(
+            channelRow(
+                "github",
+                "GitHub",
+                "https://github.com/aaq1386/VPX"
+            )
+        )
+
+        rowDivider(card, ROW_INSET)
+
+        card.addView(
+            channelRow(
+                "zap",
+                "قدرت گرفته از",
+                "VPX (Vega Pro Extended)"
+            )
+        )
+
         return card
+    }
+
+
+    private fun logSection(): LinearLayout {
+        val card = card()
+
+        card.addView(
+            Ui.cardRow(
+                this,
+                "bug",
+                Fa.SET_LOG,
+                Fa.SET_LOG_H,
+                chevron()
+            ) {
+                sendVpxLog()
+            }
+        )
+
+        return card
+    }
+
+    private fun sendVpxLog() {
+        try {
+            val file = VpxLogger.file()
+
+            if (file == null || !file.exists() || file.length() == 0L) {
+                say("گزارشی برای ارسال وجود ندارد.", false)
+                return
+            }
+
+            val uri = VpxLogProvider.uriForLog()
+
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, "VPX application log")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            startActivity(
+                Intent.createChooser(
+                    intent,
+                    "ارسال گزارش VPX"
+                )
+            )
+        } catch (error: Throwable) {
+            VpxLogger.error(
+                "SettingsActivity",
+                "Failed to share VPX log",
+                error
+            )
+            say("ارسال گزارش انجام نشد.", false)
+        }
     }
 
     /**
@@ -2451,10 +2737,19 @@ class SettingsActivity : Activity() {
      * NOT in Telegram's blue: this screen carries no hue at all, and a single
      * branded colour in an otherwise monochrome list reads as a rendering bug.
      */
-    private fun channelRow(name: String, url: String): LinearLayout {
+    private fun channelRow(
+        icon: String,
+        name: String,
+        url: String
+    ): LinearLayout {
         val row = Ui.cardRow(
-            this, "telegram", name, url.replace("https://", ""), chevron()
+            this,
+            icon,
+            name,
+            url.replace("https://", ""),
+            chevron()
         ) { openLink(url) }
+
         row.contentDescription = name
         return row
     }
@@ -2503,6 +2798,7 @@ class SettingsActivity : Activity() {
     }
 
     companion object {
+        private const val REQ_VOICE_AUDIO = 1005
         private val LEVELS = arrayOf("low", "medium", "high", "xhigh", "max")
         private val THEMES = arrayOf(Prefs.THEME_SYSTEM, Prefs.THEME_LIGHT, Prefs.THEME_DARK)
 
@@ -2520,7 +2816,7 @@ class SettingsActivity : Activity() {
          * "what is this language called in the language you are reading" — it
          * says "Persian" to an English reader — and the one thing this cell must
          * never do is name Persian in a script a Persian-only reader cannot read.
-         * Same category as `OpenAI` and `Vega Agent`: an endonym is a name.
+         * Same category as `OpenAI` and `VPX Agent`: an endonym is a name.
          */
         private const val FA_ENDONYM = "فارسی"
         private val PROTOCOLS = arrayOf(

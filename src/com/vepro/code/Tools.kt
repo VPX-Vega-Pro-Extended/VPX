@@ -3,11 +3,13 @@ package com.vepro.code
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
+import android.app.ActivityManager
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -28,6 +30,15 @@ import java.util.zip.Inflater
 import java.util.zip.ZipFile
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.IntentFilter
+import android.os.BatteryManager
+import android.os.StatFs
+import android.os.SystemClock
+import android.util.DisplayMetrics
+import android.bluetooth.BluetoothAdapter
+import android.location.LocationManager
+import android.net.wifi.WifiManager
+import android.provider.Settings
 
 /**
  * Every tool the agent can call: the file system (confined to the app
@@ -42,6 +53,8 @@ class Tools(context: Context) {
     private val ctx: Context = context.applicationContext
     private val memory: Memory
     private val prefs: Prefs
+    private val selfRepair: SelfRepair
+    private val repairSessions: RepairSessionManager
 
     @Volatile
     private var activeToken = CancellationToken()
@@ -65,12 +78,15 @@ class Tools(context: Context) {
     init {
         memory = Memory(ctx)
         prefs = Prefs(ctx)
-        // Enable WebView-backed "human mode" fetching (anti-bot / JS challenges).
+
+        selfRepair = SelfRepair(ctx)
+        repairSessions = RepairSessionManager(ctx)
+
         HumanFetch.init(ctx)
     }
 
     /** Constant tool names, shared with Prefs and the system prompt. */
-    object ToolNames {
+    object ToolNames {  
         const val DELETE = "delete_path"
         const val DOWNLOAD = "download_file"
         const val EDIT_FILE = "edit_file"
@@ -90,6 +106,12 @@ class Tools(context: Context) {
         const val WEB_FETCH = "web_fetch"
         const val WEB_SEARCH = "web_search"
         const val WRITE_FILE = "write_file"
+        const val OPEN_APP = "open_app"
+        const val PROCESS_LIST = "process_list"
+        const val KILL_PROCESS = "kill_process"
+        const val PHONE_INFO = "phone_info"
+        const val APP_LIST = "app_list"
+        const val SELF_REPAIR = "self_repair"
 
         /**
          * Dynamic Workflow's delegation tool. Executed by AgentEngine (it spawns
@@ -477,6 +499,1003 @@ class Tools(context: Context) {
         return value ?: "ERROR: tool returned no result"
     }
 
+
+    private fun appList(a: JSONObject): String {
+        return try {
+            val pm = ctx.packageManager
+
+            @Suppress("DEPRECATION")
+            val packages = pm.getInstalledPackages(0)
+
+            if (packages.isEmpty()) {
+                return "No installed applications found."
+            }
+
+            val result = StringBuilder()
+
+            var userApps = 0
+            var systemApps = 0
+            var enabledApps = 0
+            var disabledApps = 0
+
+            val sortedPackages = packages.sortedBy {
+                it.applicationInfo?.loadLabel(pm)?.toString()?.lowercase(Locale.getDefault())
+                    ?: it.packageName.lowercase(Locale.getDefault())
+            }
+
+            result.append("INSTALLED APPLICATIONS\n\n")
+
+            for (packageInfo in sortedPackages) {
+                val applicationInfo = packageInfo.applicationInfo
+                    ?: continue
+
+                val appName = try {
+                    applicationInfo.loadLabel(pm)?.toString()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: packageInfo.packageName
+                } catch (_: Exception) {
+                    packageInfo.packageName
+                }
+
+                val packageName = packageInfo.packageName
+
+                val versionName = packageInfo.versionName
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "Unknown"
+
+                @Suppress("DEPRECATION")
+                val versionCode = packageInfo.versionCode
+
+                val isSystemApp =
+                    (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+
+                val isUpdatedSystemApp =
+                    (applicationInfo.flags and
+                        android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+
+                val isEnabled = applicationInfo.enabled
+
+                if (isSystemApp || isUpdatedSystemApp) {
+                    systemApps++
+                } else {
+                    userApps++
+                }
+
+                if (isEnabled) {
+                    enabledApps++
+                } else {
+                    disabledApps++
+                }
+
+                result.append("Name: ")
+                    .append(appName)
+                    .append("\n")
+
+                result.append("Package: ")
+                    .append(packageName)
+                    .append("\n")
+
+                result.append("Version: ")
+                    .append(versionName)
+                    .append("\n")
+
+                result.append("Version Code: ")
+                    .append(versionCode)
+                    .append("\n")
+
+                result.append("Type: ")
+                    .append(
+                        if (isSystemApp || isUpdatedSystemApp) {
+                            "SYSTEM"
+                        } else {
+                            "USER"
+                        }
+                    )
+                    .append("\n")
+
+                result.append("Enabled: ")
+                    .append(if (isEnabled) "YES" else "NO")
+                    .append("\n")
+
+                result.append("\n")
+            }
+
+            val header = StringBuilder()
+
+            header.append("Total: ")
+                .append(packages.size)
+                .append("\n")
+
+            header.append("User apps: ")
+                .append(userApps)
+                .append("\n")
+
+            header.append("System apps: ")
+                .append(systemApps)
+                .append("\n")
+
+            header.append("Enabled: ")
+                .append(enabledApps)
+                .append("\n")
+
+            header.append("Disabled: ")
+                .append(disabledApps)
+                .append("\n\n")
+
+            header.append(result)
+
+            header.toString().trim()
+
+        } catch (e: SecurityException) {
+            "ERROR: permission denied while reading installed applications: ${e.message}"
+        } catch (e: Exception) {
+            "ERROR: failed to list applications: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+
+    private fun phoneInfo(a: JSONObject): String {
+        return try {
+            val pm = ctx.packageManager
+
+            // ---------------------------------------------------------
+            // Device
+            // ---------------------------------------------------------
+            val brand = Build.BRAND.orEmpty().ifBlank { "Unknown" }
+            val manufacturer = Build.MANUFACTURER.orEmpty().ifBlank { "Unknown" }
+            val model = Build.MODEL.orEmpty().ifBlank { "Unknown" }
+            val device = Build.DEVICE.orEmpty().ifBlank { "Unknown" }
+            val product = Build.PRODUCT.orEmpty().ifBlank { "Unknown" }
+
+            // ---------------------------------------------------------
+            // Android
+            // ---------------------------------------------------------
+            val androidVersion = Build.VERSION.RELEASE.orEmpty().ifBlank { "Unknown" }
+            val sdk = Build.VERSION.SDK_INT
+            val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Build.VERSION.SECURITY_PATCH.orEmpty().ifBlank { "Unknown" }
+            } else {
+                "N/A"
+            }
+
+            // ---------------------------------------------------------
+            // CPU
+            // ---------------------------------------------------------
+            val cpuAbi = Build.SUPPORTED_ABIS
+                .firstOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: "Unknown"
+
+            val cpuAbis = Build.SUPPORTED_ABIS
+                .joinToString(", ")
+                .ifBlank { "Unknown" }
+
+            val cpuCores = Runtime.getRuntime().availableProcessors()
+
+            // ---------------------------------------------------------
+            // RAM
+            // ---------------------------------------------------------
+            val activityManager =
+                ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+
+            val memoryInfo = ActivityManager.MemoryInfo()
+
+            if (activityManager != null) {
+                activityManager.getMemoryInfo(memoryInfo)
+            }
+
+            val totalRam = memoryInfo.totalMem
+            val availableRam = memoryInfo.availMem
+            val usedRam = (totalRam - availableRam).coerceAtLeast(0L)
+
+            // ---------------------------------------------------------
+            // Storage
+            // ---------------------------------------------------------
+            val dataPath = Environment.getDataDirectory()
+            val stat = StatFs(dataPath.path)
+
+            val totalStorage = stat.totalBytes
+            val freeStorage = stat.availableBytes
+            val usedStorage = (totalStorage - freeStorage).coerceAtLeast(0L)
+
+            // ---------------------------------------------------------
+            // Battery
+            // ---------------------------------------------------------
+            val batteryIntent = ctx.registerReceiver(
+                null,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            )
+
+            val batteryLevel = batteryIntent?.getIntExtra(
+                BatteryManager.EXTRA_LEVEL,
+                -1
+            ) ?: -1
+
+            val batteryScale = batteryIntent?.getIntExtra(
+                BatteryManager.EXTRA_SCALE,
+                -1
+            ) ?: -1
+
+            val batteryPercent = if (
+                batteryLevel >= 0 &&
+                batteryScale > 0
+            ) {
+                (batteryLevel * 100f / batteryScale)
+            } else {
+                -1f
+            }
+
+            val batteryStatus = batteryIntent?.getIntExtra(
+                BatteryManager.EXTRA_STATUS,
+                -1
+            ) ?: -1
+
+            val charging = when (batteryStatus) {
+                BatteryManager.BATTERY_STATUS_CHARGING,
+                BatteryManager.BATTERY_STATUS_FULL -> true
+
+                else -> false
+            }
+
+            val batteryTemperature = batteryIntent?.getIntExtra(
+                BatteryManager.EXTRA_TEMPERATURE,
+                -1
+            ) ?: -1
+
+            val batteryTempC = if (batteryTemperature >= 0) {
+                batteryTemperature / 10f
+            } else {
+                -1f
+            }
+
+            // ---------------------------------------------------------
+            // Screen
+            // ---------------------------------------------------------
+            val windowManager =
+                ctx.getSystemService(Context.WINDOW_SERVICE)
+                    as? android.view.WindowManager
+
+            val displayMetrics = DisplayMetrics()
+
+            if (windowManager != null) {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay.getRealMetrics(displayMetrics)
+            }
+
+            val screenWidth = displayMetrics.widthPixels
+            val screenHeight = displayMetrics.heightPixels
+            val density = displayMetrics.densityDpi
+
+            // ---------------------------------------------------------
+            // Uptime
+            // ---------------------------------------------------------
+            val uptimeMillis = SystemClock.elapsedRealtime()
+
+            val totalSeconds = uptimeMillis / 1000
+            val days = totalSeconds / 86400
+            val hours = (totalSeconds % 86400) / 3600
+            val minutes = (totalSeconds % 3600) / 60
+
+            val uptime = when {
+                days > 0 ->
+                    "${days}d ${hours}h ${minutes}m"
+
+                hours > 0 ->
+                    "${hours}h ${minutes}m"
+
+                else ->
+                    "${minutes}m"
+            }
+
+            // ---------------------------------------------------------
+            // Helper
+            // ---------------------------------------------------------
+            fun formatBytes(bytes: Long): String {
+                if (bytes < 0) return "Unknown"
+
+                val gb = bytes / (1024.0 * 1024.0 * 1024.0)
+
+                return if (gb >= 1.0) {
+                    String.format(Locale.US, "%.2f GB", gb)
+                } else {
+                    val mb = bytes / (1024.0 * 1024.0)
+                    String.format(Locale.US, "%.1f MB", mb)
+                }
+            }
+
+            fun formatPercent(used: Long, total: Long): String {
+                if (total <= 0L) return "Unknown"
+
+                val percent = used.toDouble() * 100.0 / total.toDouble()
+
+                return String.format(
+                    Locale.US,
+                    "%.1f%%",
+                    percent
+                )
+            }
+
+            // ---------------------------------------------------------
+            // Result
+            // ---------------------------------------------------------
+            val result = StringBuilder()
+
+            result.append("PHONE INFORMATION\n\n")
+
+            result.append("DEVICE\n")
+            result.append("Brand: ")
+                .append(brand)
+                .append("\n")
+
+            result.append("Manufacturer: ")
+                .append(manufacturer)
+                .append("\n")
+
+            result.append("Model: ")
+                .append(model)
+                .append("\n")
+
+            result.append("Device: ")
+                .append(device)
+                .append("\n")
+
+            result.append("Product: ")
+                .append(product)
+                .append("\n\n")
+
+            result.append("ANDROID\n")
+            result.append("Version: ")
+                .append(androidVersion)
+                .append("\n")
+
+            result.append("SDK: ")
+                .append(sdk)
+                .append("\n")
+
+            result.append("Security Patch: ")
+                .append(securityPatch)
+                .append("\n\n")
+
+            result.append("CPU\n")
+            result.append("Primary ABI: ")
+                .append(cpuAbi)
+                .append("\n")
+
+            result.append("Supported ABIs: ")
+                .append(cpuAbis)
+                .append("\n")
+
+            result.append("Cores: ")
+                .append(cpuCores)
+                .append("\n\n")
+
+            result.append("RAM\n")
+            result.append("Total: ")
+                .append(formatBytes(totalRam))
+                .append("\n")
+
+            result.append("Used: ")
+                .append(formatBytes(usedRam))
+                .append(" (")
+                .append(formatPercent(usedRam, totalRam))
+                .append(")\n")
+
+            result.append("Available: ")
+                .append(formatBytes(availableRam))
+                .append("\n\n")
+
+            result.append("STORAGE\n")
+            result.append("Total: ")
+                .append(formatBytes(totalStorage))
+                .append("\n")
+
+            result.append("Used: ")
+                .append(formatBytes(usedStorage))
+                .append(" (")
+                .append(formatPercent(usedStorage, totalStorage))
+                .append(")\n")
+
+            result.append("Free: ")
+                .append(formatBytes(freeStorage))
+                .append("\n\n")
+
+            result.append("BATTERY\n")
+
+            if (batteryPercent >= 0f) {
+                result.append("Level: ")
+                    .append(
+                        String.format(
+                            Locale.US,
+                            "%.0f%%",
+                            batteryPercent
+                        )
+                    )
+                    .append("\n")
+            } else {
+                result.append("Level: Unknown\n")
+            }
+
+            result.append("Charging: ")
+                .append(if (charging) "YES" else "NO")
+                .append("\n")
+
+            if (batteryTempC >= 0f) {
+                result.append("Temperature: ")
+                    .append(
+                        String.format(
+                            Locale.US,
+                            "%.1f°C",
+                            batteryTempC
+                        )
+                    )
+                    .append("\n")
+            } else {
+                result.append("Temperature: Unknown\n")
+            }
+
+            result.append("\n")
+
+            result.append("DISPLAY\n")
+            result.append("Resolution: ")
+                .append(screenWidth)
+                .append(" × ")
+                .append(screenHeight)
+                .append("\n")
+
+            result.append("Density: ")
+                .append(density)
+                .append(" dpi\n\n")
+
+            result.append("SYSTEM\n")
+            result.append("Uptime: ")
+                .append(uptime)
+                .append("\n")
+
+            result.toString().trim()
+
+        } catch (e: SecurityException) {
+            "ERROR: permission denied while reading phone information: ${e.message}"
+        } catch (e: Exception) {
+            "ERROR: failed to get phone information: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+
+    private fun killProcess(a: JSONObject): String {
+        val pid = a.optInt("pid", -1)
+        val processName = a.optStr("process_name").trim()
+
+        if (pid <= 0 && processName.isEmpty()) {
+            return "ERROR: pid or process_name is required"
+        }
+
+        return try {
+            val activityManager =
+                ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                    ?: return "ERROR: ActivityManager is unavailable"
+
+            val processes = activityManager.runningAppProcesses ?: emptyList()
+
+            val target = when {
+                pid > 0 -> {
+                    processes.firstOrNull { it.pid == pid }
+                }
+
+                processName.isNotEmpty() -> {
+                    processes.firstOrNull {
+                        it.processName.equals(processName, ignoreCase = true)
+                    }
+                }
+
+                else -> null
+            }
+
+            if (target == null) {
+                return if (pid > 0) {
+                    "ERROR: no running process found with PID $pid"
+                } else {
+                    "ERROR: no running process found with name '$processName'"
+                }
+            }
+
+            val targetPid = target.pid
+            val targetName = target.processName
+
+            // Never allow the agent to kill its own process.
+            if (targetPid == android.os.Process.myPid()) {
+                return "ERROR: refusing to kill VPX's own process"
+            }
+
+            // Android only allows an app to reliably kill its own processes.
+            if (target.uid != android.os.Process.myUid()) {
+                return "ERROR: permission denied: '$targetName' belongs to another application"
+            }
+
+            android.os.Process.killProcess(targetPid)
+
+            "SUCCESS: kill signal sent to '$targetName' (PID: $targetPid)"
+
+        } catch (e: SecurityException) {
+            "ERROR: permission denied: ${e.message}"
+        } catch (e: Exception) {
+            "ERROR: failed to kill process: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+    private fun processList(a: JSONObject): String {
+        return try {
+            val activityManager =
+                ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                    ?: return "ERROR: ActivityManager is unavailable"
+
+            val processes = activityManager.runningAppProcesses
+                ?: return "ERROR: unable to retrieve running processes"
+
+            if (processes.isEmpty()) {
+                return "No running app processes found."
+            }
+
+            val result = StringBuilder()
+            result.append("Running processes (${processes.size}):\n\n")
+
+            for (process in processes) {
+                val pid = process.pid
+                val processName = process.processName ?: "unknown"
+                val importance = when (process.importance) {
+                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ->
+                        "FOREGROUND"
+
+                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE ->
+                        "VISIBLE"
+
+                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_PERCEPTIBLE ->
+                        "PERCEPTIBLE"
+
+                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE ->
+                        "SERVICE"
+
+                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_BACKGROUND ->
+                        "BACKGROUND"
+
+                    ActivityManager.RunningAppProcessInfo.IMPORTANCE_EMPTY ->
+                        "EMPTY"
+
+                    else ->
+                        "OTHER"
+                }
+
+                result.append("PID: ")
+                    .append(pid)
+                    .append(" | ")
+                    .append(processName)
+                    .append(" | ")
+                    .append(importance)
+                    .append("\n")
+            }
+
+            result.toString().trim()
+
+        } catch (e: Exception) {
+            "ERROR: failed to list processes: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+    private fun openApp(a: JSONObject): String {
+        val appName = a.optStr("app_name").trim()
+        val packageName = a.optStr("package").trim()
+
+        if (appName.isEmpty() && packageName.isEmpty()) {
+            return "ERROR: app_name or package is required"
+        }
+
+        return try {
+            val packageManager = ctx.packageManager
+
+            // ---------------------------------------------------------
+            // 1. Direct package name
+            // ---------------------------------------------------------
+            if (packageName.isNotEmpty()) {
+                val intent = packageManager.getLaunchIntentForPackage(packageName)
+
+                if (intent == null) {
+                    return "ERROR: no launchable app found for package '$packageName'"
+                }
+
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(intent)
+
+                return "SUCCESS: opened app '$packageName'"
+            }
+
+            // ---------------------------------------------------------
+            // 2. Normalize search query
+            // ---------------------------------------------------------
+            fun normalize(value: String): String {
+                return value
+                    .lowercase()
+                    .replace(Regex("[^a-z0-9آ-ی]"), "")
+            }
+
+            fun tokenize(value: String): List<String> {
+                return value
+                    .lowercase()
+                    .split(Regex("[^a-z0-9آ-ی]+"))
+                    .filter { it.isNotBlank() }
+            }
+
+            val query = appName.lowercase().trim()
+            val normalizedQuery = normalize(query)
+            val queryTokens = tokenize(query)
+
+            if (normalizedQuery.isEmpty()) {
+                return "ERROR: invalid app name '$appName'"
+            }
+
+            // ---------------------------------------------------------
+            // 3. Get installed applications
+            // ---------------------------------------------------------
+            val apps = packageManager.getInstalledApplications(0)
+
+            data class AppMatch(
+                val app: android.content.pm.ApplicationInfo,
+                val label: String,
+                val score: Int
+            )
+
+            val matches = mutableListOf<AppMatch>()
+
+            for (app in apps) {
+                try {
+                    val label = packageManager
+                        .getApplicationLabel(app)
+                        .toString()
+                        .trim()
+
+                    val packageNameLower = app.packageName.lowercase()
+
+                    val normalizedLabel = normalize(label)
+                    val normalizedPackage = normalize(packageNameLower)
+
+                    val labelTokens = tokenize(label)
+
+                    var score = 0
+
+                    // -------------------------------------------------
+                    // Exact matches
+                    // -------------------------------------------------
+                    if (label.equals(query, ignoreCase = true)) {
+                        score += 1000
+                    }
+
+                    if (normalizedLabel == normalizedQuery) {
+                        score += 900
+                    }
+
+                    // -------------------------------------------------
+                    // Token matches
+                    // -------------------------------------------------
+                    for (token in queryTokens) {
+                        if (labelTokens.any { it.equals(token, ignoreCase = true) }) {
+                            score += 200
+                        }
+
+                        if (normalizedLabel.contains(token)) {
+                            score += 100
+                        }
+
+                        if (normalizedPackage.contains(token)) {
+                            score += 80
+                        }
+                    }
+
+                    // -------------------------------------------------
+                    // Partial matches
+                    // -------------------------------------------------
+                    if (normalizedLabel.contains(normalizedQuery)) {
+                        score += 400
+                    }
+
+                    if (normalizedQuery.contains(normalizedLabel)) {
+                        score += 250
+                    }
+
+                    // -------------------------------------------------
+                    // Package name matching
+                    // -------------------------------------------------
+                    if (normalizedPackage.contains(normalizedQuery)) {
+                        score += 300
+                    }
+
+                    // Only keep actual candidates
+                    if (score > 0) {
+                        matches.add(
+                            AppMatch(
+                                app = app,
+                                label = label,
+                                score = score
+                            )
+                        )
+                    }
+
+                } catch (_: Exception) {
+                    // Ignore applications whose metadata cannot be read
+                }
+            }
+
+            // ---------------------------------------------------------
+            // 4. No match
+            // ---------------------------------------------------------
+            if (matches.isEmpty()) {
+                return "ERROR: no installed app found matching '$appName'"
+            }
+
+            // ---------------------------------------------------------
+            // 5. Pick the best match
+            // ---------------------------------------------------------
+            val bestMatch = matches
+                .sortedByDescending { it.score }
+                .first()
+
+            val app = bestMatch.app
+            val label = bestMatch.label
+
+            // ---------------------------------------------------------
+            // 6. Get launch intent
+            // ---------------------------------------------------------
+            val intent = packageManager.getLaunchIntentForPackage(app.packageName)
+
+            if (intent == null) {
+                return "ERROR: '$label' was found but has no launchable activity"
+            }
+
+            // ---------------------------------------------------------
+            // 7. Launch application
+            // ---------------------------------------------------------
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(intent)
+
+            "SUCCESS: opened '$label' (package: ${app.packageName})"
+
+        } catch (e: Exception) {
+            "ERROR: failed to open app: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+
+    private fun selfRepair(a: JSONObject): String {
+        val operation = a.optStr("operation", "").trimJava()
+
+        return try {
+            when (operation) {
+
+                "create" -> {
+                    val sourceRoot = externalRoot(ctx)
+
+                    val session = repairSessions.create(sourceRoot)
+
+                    buildString {
+                        append("SELF-REPAIR SESSION CREATED\n")
+                        append("\n")
+                        append("Session ID: ")
+                        append(session.id)
+                        append("\n")
+                        append("Sandbox: ")
+                        append(session.sandboxRoot.absolutePath)
+                        append("\n\n")
+                        append("IMPORTANT:\n")
+                        append("The original source workspace was NOT modified.\n")
+                        append("All future repair operations must use this session ID.")
+                    }
+                }
+
+                "read" -> {
+                    val session = requireSessionId(a)
+
+                    val path = a.optStr("path", "").trimJava()
+
+                    if (path.isEmpty()) {
+                        return "ERROR: path is required"
+                    }
+
+                    repairSessions.read(
+                        session,
+                        path
+                    )
+                }
+
+                "write" -> {
+                    val session = requireSessionId(a)
+
+                    val path = a.optStr("path", "").trimJava()
+
+                    if (path.isEmpty()) {
+                        return "ERROR: path is required"
+                    }
+
+                    if (!a.has("content")) {
+                        return "ERROR: content is required"
+                    }
+
+                    repairSessions.write(
+                        session,
+                        path,
+                        a.optStr("content", "")
+                    )
+
+                    "OK: sandbox file modified: $path\n" +
+                        "Original source was NOT modified."
+                }
+
+                "mkdir" -> {
+                    val session = requireSessionId(a)
+
+                    val path = a.optStr("path", "").trimJava()
+
+                    if (path.isEmpty()) {
+                        return "ERROR: path is required"
+                    }
+
+                    val directory = repairSessions.mkdir(
+                        session,
+                        path
+                    )
+
+                    "OK: sandbox directory created\n" +
+                        directory.absolutePath
+                }
+
+                "list" -> {
+                    val session = requireSessionId(a)
+
+                    val files = repairSessions.files(session)
+
+                    buildString {
+                        append("SANDBOX FILES\n\n")
+
+                        files.forEach {
+                            append(it)
+                            append('\n')
+                        }
+                    }
+                }
+
+                "validate" -> {
+                    val session = requireSessionId(a)
+
+                    val result = repairSessions.validate(session)
+
+                    buildString {
+                        append(
+                            if (result.valid) {
+                                "VALIDATION PASSED\n"
+                            } else {
+                                "VALIDATION FAILED\n"
+                            }
+                        )
+
+                        if (result.problems.isNotEmpty()) {
+                            append("\nPROBLEMS:\n")
+
+                            result.problems.forEach {
+                                append("- ")
+                                append(it)
+                                append('\n')
+                            }
+                        }
+
+                        append("\nOriginal source was NOT modified.")
+                    }
+                }
+
+                "destroy" -> {
+                    val session = requireSessionId(a)
+
+                    val destroyed = repairSessions.destroy(session)
+
+                    if (destroyed) {
+                        "OK: self-repair session destroyed: $session"
+                    } else {
+                        "ERROR: could not destroy session: $session"
+                    }
+                }
+
+                "execute" -> {
+                    val session = requireSessionId(a)
+
+                    val commandArray = a.optJSONArray("command")
+                        ?: return "ERROR: command array is required"
+
+                    if (commandArray.length() == 0) {
+                        return "ERROR: command cannot be empty"
+                    }
+
+                    val command = ArrayList<String>()
+
+                    for (i in 0 until commandArray.length()) {
+                        val part = commandArray.optString(i)
+
+                        if (part.isEmpty()) {
+                            return "ERROR: command contains an empty argument"
+                        }
+
+                        command.add(part)
+                    }
+
+                    val timeout = a.optLong(
+                        "timeout_ms",
+                        30_000L
+                    ).coerceIn(
+                        1000L,
+                        60_000L
+                    )
+
+                    val result = selfRepair.execute(
+                        repairSessions.require(session),
+                        command,
+                        timeout
+                    )
+
+                    buildString {
+                        append("COMMAND RESULT\n\n")
+                        append("Exit code: ")
+                        append(result.exitCode)
+                        append('\n')
+
+                        append("Timed out: ")
+                        append(result.timedOut)
+                        append("\n\n")
+
+                        append("STDOUT:\n")
+                        append(result.stdout)
+
+                        if (result.stderr.isNotEmpty()) {
+                            append("\nSTDERR:\n")
+                            append(result.stderr)
+                        }
+
+                        append("\n\n")
+                        append("Execution directory:\n")
+                        append(repairSessions.sandboxPath(session))
+                    }
+                }
+
+                "sessions" -> {
+                    val sessions = repairSessions.list()
+
+                    if (sessions.isEmpty()) {
+                        "No active self-repair sessions."
+                    } else {
+                        buildString {
+                            append("ACTIVE SELF-REPAIR SESSIONS\n\n")
+
+                            sessions.forEach {
+                                append(it)
+                                append('\n')
+                            }
+                        }
+                    }
+                }
+
+                else -> {
+                    "ERROR: unknown self-repair operation '$operation'. " +
+                        "Supported operations: create, read, write, mkdir, list, validate, " +
+                        "execute, destroy, sessions"
+                }
+            }
+        } catch (e: Exception) {
+            "ERROR: self-repair failed: " +
+                e.javaClass.simpleName +
+                ": " +
+                (e.message ?: "unknown error")
+        }
+    }
+
+    private fun requireSessionId(a: JSONObject): String {
+        val id = a.optStr("session_id", "").trimJava()
+
+        if (id.isEmpty()) {
+            throw IllegalArgumentException(
+                "session_id is required"
+            )
+        }
+
+        return id
+    }
     private fun runInternal(
         name: String,
         args: JSONObject?,
@@ -529,6 +1548,12 @@ class Tools(context: Context) {
                 ToolNames.LIST_ARCHIVE -> listArchive(a, observer)
                 ToolNames.READ_ARCHIVE_ENTRY -> readArchiveEntry(a, observer)
                 ToolNames.READ_PDF -> readPdf(a, observer)
+                ToolNames.OPEN_APP -> openApp(a)
+                ToolNames.PROCESS_LIST -> processList(a)
+                ToolNames.KILL_PROCESS -> killProcess(a)
+                ToolNames.PHONE_INFO -> phoneInfo(a)
+                ToolNames.APP_LIST -> appList(a)
+                ToolNames.SELF_REPAIR -> selfRepair(a)
                 else -> "ERROR: unknown tool '$name'"
             }
         } catch (cancelled: CancellationToken.CancelledException) {
@@ -2136,7 +3161,9 @@ class Tools(context: Context) {
             ToolNames.WRITE_FILE == name || ToolNames.EDIT_FILE == name ||
                 ToolNames.DELETE == name || ToolNames.MKDIR == name ||
                 ToolNames.MOVE == name || ToolNames.REMEMBER == name ||
-                ToolNames.DOWNLOAD == name || ToolNames.EXTRACT_ARCHIVE_ENTRY == name
+                ToolNames.DOWNLOAD == name || ToolNames.EXTRACT_ARCHIVE_ENTRY == name ||
+                ToolNames.SELF_REPAIR == name
+
 
         /** Every tool name the agent can actually call. */
         private val ALL_TOOLS: Set<String> = hashSetOf(
@@ -2145,7 +3172,9 @@ class Tools(context: Context) {
             ToolNames.MOVE, ToolNames.READ_ARCHIVE_ENTRY, ToolNames.EXTRACT_ARCHIVE_ENTRY,
             ToolNames.READ_FILE, ToolNames.READ_PDF, ToolNames.RECALL, ToolNames.REMEMBER,
             ToolNames.SEARCH, ToolNames.WEB_FETCH, ToolNames.WEB_SEARCH, ToolNames.WRITE_FILE,
-            ToolNames.TASK
+            ToolNames.OPEN_APP,
+            ToolNames.TASK,
+            ToolNames.SELF_REPAIR
         )
 
         /**
@@ -2191,12 +3220,14 @@ class Tools(context: Context) {
             ToolNames.READ_PDF -> Fa.ACT_PDF
             ToolNames.REMEMBER, ToolNames.RECALL -> Fa.ACT_MEMORY
             ToolNames.TASK -> Fa.ACT_TASK
+            ToolNames.SELF_REPAIR -> "self repair"
             else -> Fa.ACT_OTHER
         }
 
         /** Icon key for a tool, so a web search does not look like a file write. */
         fun actionIcon(name: String?): String = when (name) {
             ToolNames.TASK -> "sparkle"
+            ToolNames.SELF_REPAIR -> "sparkle"
             ToolNames.WEB_SEARCH -> "search"
             ToolNames.WEB_FETCH, ToolNames.DOWNLOAD -> "globe"
             ToolNames.READ_FILE, ToolNames.READ_PDF, ToolNames.FILE_INFO -> "file"

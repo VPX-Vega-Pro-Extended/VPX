@@ -20,6 +20,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
+import android.graphics.drawable.Drawable
+import android.widget.TableLayout
+import android.widget.TableRow
 
 /**
  * Small hand-rolled markdown renderer.
@@ -226,29 +229,508 @@ object MarkdownRenderer {
         addProseBlock(context, container, text)
     }
 
-    /** A whole pipe table, held in one LTR monospace view so columns align. */
-    private fun addTableBlock(context: Context, container: LinearLayout, text: String) {
+    private fun addTableBlock(
+        context: Context,
+        container: LinearLayout,
+        text: String
+    ) {
+        val rows = parseMarkdownTable(text)
+
+        if (rows.isEmpty()) {
+            addProseBlock(context, container, text)
+            return
+        }
+
+        val columnCount = rows.maxOfOrNull { it.size } ?: 0
+
+        if (columnCount == 0) {
+            addProseBlock(context, container, text)
+            return
+        }
+
+        /*
+        * ------------------------------------------------------------
+        * HorizontalScrollView
+        * ------------------------------------------------------------
+        *
+        * The table is allowed to become wider than the screen.
+        * This is important for mobile Markdown tables.
+        */
         val scroll = HorizontalScrollView(context)
-        scroll.isHorizontalScrollBarEnabled = false
+
+        scroll.isHorizontalScrollBarEnabled = true
+        scroll.isFillViewport = true
+        scroll.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+
+        /*
+        * Keep scrolling itself LTR.
+        * Text direction is handled independently by each cell.
+        */
         scroll.layoutDirection = View.LAYOUT_DIRECTION_LTR
-        val view = TextView(context)
-        view.setTextColor(Theme.TEXT)
-        view.textSize = Ui.Type.META
-        view.typeface = Theme.mono()
-        view.setLineSpacing(Theme.dpf(context, 3.0f), 1.0f)
-        view.setTextIsSelectable(true)
-        installSelectionActions(context, view)
-        view.textDirection = View.TEXT_DIRECTION_LTR
-        view.text = text
-        view.background = Theme.sunkenCard(Theme.R_SM, context)
-        val pad = Theme.dp(context, 10.0f)
-        view.setPadding(pad, pad, pad, pad)
-        scroll.addView(view)
-        val params = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+
+        /*
+        * ------------------------------------------------------------
+        * Table container
+        * ------------------------------------------------------------
+        */
+        val table = android.widget.TableLayout(context)
+
+        table.layoutDirection = View.LAYOUT_DIRECTION_LTR
+
+        /*
+        * Do NOT use:
+        *
+        * isStretchAllColumns = true
+        * isShrinkAllColumns = true
+        *
+        * They destroy responsive sizing for real-world Markdown tables.
+        */
+        table.isStretchAllColumns = false
+        table.isShrinkAllColumns = false
+
+        table.setPadding(
+            Theme.dp(context, 1.0f),
+            Theme.dp(context, 1.0f),
+            Theme.dp(context, 1.0f),
+            Theme.dp(context, 1.0f)
         )
-        params.bottomMargin = Theme.dp(context, 6.0f)
-        container.addView(scroll, params)
+
+        table.background = Theme.sunkenCard(
+            Theme.R_SM,
+            context
+        )
+
+        /*
+        * ------------------------------------------------------------
+        * Calculate the longest content of every column.
+        * ------------------------------------------------------------
+        */
+        val columnLengths = IntArray(columnCount)
+
+        rows.forEach { row ->
+            for (columnIndex in 0 until columnCount) {
+
+                val value = row
+                    .getOrNull(columnIndex)
+                    ?.trimJava()
+                    ?: ""
+
+                /*
+                * Count characters instead of pixels.
+                *
+                * This gives us a reasonable minimum width without
+                * making the table enormous.
+                */
+                val length = value.length
+
+                if (length > columnLengths[columnIndex]) {
+                    columnLengths[columnIndex] = length
+                }
+            }
+        }
+
+        /*
+        * ------------------------------------------------------------
+        * Build rows
+        * ------------------------------------------------------------
+        */
+        rows.forEachIndexed { rowIndex, row ->
+
+            val tableRow = android.widget.TableRow(context)
+
+            tableRow.layoutDirection =
+                View.LAYOUT_DIRECTION_LTR
+
+            for (columnIndex in 0 until columnCount) {
+
+                val value = row
+                    .getOrNull(columnIndex)
+                    ?.trimJava()
+                    ?: ""
+
+                val cell = TextView(context)
+
+                /*
+                * ----------------------------------------------------
+                * Typography
+                * ----------------------------------------------------
+                */
+                cell.textSize =
+                    if (rowIndex == 0) {
+                        Ui.Type.META
+                    } else {
+                        Ui.Type.BODY
+                    }
+
+                cell.typeface = Theme.ui()
+
+                cell.setTextColor(Theme.TEXT)
+
+                cell.setLineSpacing(
+                    Theme.dpf(context, 3.0f),
+                    1.0f
+                )
+
+                /*
+                * ----------------------------------------------------
+                * Padding
+                * ----------------------------------------------------
+                */
+                cell.setPadding(
+                    Theme.dp(context, 12.0f),
+                    Theme.dp(context, 9.0f),
+                    Theme.dp(context, 12.0f),
+                    Theme.dp(context, 9.0f)
+                )
+
+                /*
+                * ----------------------------------------------------
+                * IMPORTANT:
+                *
+                * Allow text to wrap naturally.
+                * ----------------------------------------------------
+                */
+                cell.maxLines = Int.MAX_VALUE
+
+                cell.setHorizontallyScrolling(false)
+
+                /*
+                * Persian / English / mixed content.
+                */
+                cell.textDirection =
+                    View.TEXT_DIRECTION_FIRST_STRONG
+
+                /*
+                * ----------------------------------------------------
+                * Render Markdown inside the cell.
+                * ----------------------------------------------------
+                */
+                cell.text = toSpanned(
+                    inlineToHtml(value)
+                )
+
+                /*
+                * ----------------------------------------------------
+                * Text selection
+                * ----------------------------------------------------
+                */
+                cell.setTextIsSelectable(true)
+
+                installSelectionActions(
+                    context,
+                    cell
+                )
+
+                /*
+                * ----------------------------------------------------
+                * Cell background
+                * ----------------------------------------------------
+                */
+                cell.background = tableCellBackground(
+                    context,
+                    rowIndex == 0,
+                    columnIndex,
+                    columnCount
+                )
+
+                /*
+                * ----------------------------------------------------
+                * Responsive width
+                * ----------------------------------------------------
+                *
+                * NO weight.
+                *
+                * The cell gets a natural width based on its content,
+                * while the table can become horizontally scrollable.
+                */
+                val estimatedChars =
+                    columnLengths[columnIndex]
+                        .coerceIn(4, 32)
+
+                val estimatedWidth =
+                    Theme.dp(
+                        context,
+                        (estimatedChars * 7.0f + 28.0f)
+                            .coerceIn(64.0f, 280.0f)
+                    )
+
+                val cellParams =
+                    android.widget.TableRow.LayoutParams(
+                        estimatedWidth,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+
+                /*
+                * Give text columns enough room to wrap,
+                * instead of forcing every column to be tiny.
+                */
+                cellParams.width = estimatedWidth
+
+                tableRow.addView(
+                    cell,
+                    cellParams
+                )
+            }
+
+            /*
+            * --------------------------------------------------------
+            * Row
+            * --------------------------------------------------------
+            */
+            val rowParams =
+                android.widget.TableLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+
+            table.addView(
+                tableRow,
+                rowParams
+            )
+        }
+
+        /*
+        * ------------------------------------------------------------
+        * Add table to horizontal scroll.
+        * ------------------------------------------------------------
+        */
+        scroll.addView(
+            table,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        /*
+        * ------------------------------------------------------------
+        * Container params
+        * ------------------------------------------------------------
+        */
+        val params = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+
+        params.bottomMargin =
+            Theme.dp(context, 6.0f)
+
+        container.addView(
+            scroll,
+            params
+        )
+    }
+    /**
+    * Parses a Markdown pipe table.
+    *
+    * Example:
+    *
+    * | Name | Value |
+    * |------|-------|
+    * | RAM  | 7 GB  |
+    *
+    * becomes:
+    *
+    * [
+    *   ["Name", "Value"],
+    *   ["RAM", "7 GB"]
+    * ]
+    */
+    private fun parseMarkdownTable(text: String): List<List<String>> {
+        val result = ArrayList<List<String>>()
+
+        val lines = text
+            .split("\n")
+            .map { it.trimJava() }
+            .filter { it.isNotEmpty() }
+
+        if (lines.size < 2) {
+            return emptyList()
+        }
+
+        /*
+        * The first row must look like a table row.
+        */
+        if (!isTableLine(lines[0])) {
+            return emptyList()
+        }
+
+        for ((index, line) in lines.withIndex()) {
+
+            if (!isTableLine(line)) {
+                continue
+            }
+
+            /*
+            * Markdown separator:
+            *
+            * |---|---|
+            * |:---|---:|
+            * |:---:|---|
+            */
+            if (isTableSeparatorLine(line)) {
+                continue
+            }
+
+            val cells = splitMarkdownTableRow(line)
+
+            if (cells.isNotEmpty()) {
+                result.add(cells)
+            }
+        }
+
+        /*
+        * A valid Markdown table must have at least a header + one data row.
+        */
+        if (result.size < 2) {
+            return emptyList()
+        }
+
+        return result
+    }
+
+
+    /**
+    * Splits:
+    *
+    * | مشخصه | مقدار |
+    *
+    * into:
+    *
+    * ["مشخصه", "مقدار"]
+    *
+    * Empty first/last cells caused by the outer pipes are removed.
+    */
+    private fun splitMarkdownTableRow(line: String): List<String> {
+        var value = line.trimJava()
+
+        if (value.startsWith("|")) {
+            value = value.substring(1)
+        }
+
+        if (value.endsWith("|")) {
+            value = value.substring(0, value.length - 1)
+        }
+
+        if (value.isEmpty()) {
+            return emptyList()
+        }
+
+        /*
+        * Protect escaped pipes:
+        *
+        * \|  -> literal |
+        */
+        val cells = ArrayList<String>()
+        val current = StringBuilder()
+
+        var escaped = false
+
+        for (char in value) {
+            if (escaped) {
+                if (char == '|') {
+                    current.append('|')
+                } else {
+                    current.append('\\')
+                    current.append(char)
+                }
+
+                escaped = false
+                continue
+            }
+
+            if (char == '\\') {
+                escaped = true
+                continue
+            }
+
+            if (char == '|') {
+                cells.add(current.toString().trimJava())
+                current.setLength(0)
+            } else {
+                current.append(char)
+            }
+        }
+
+        if (escaped) {
+            current.append('\\')
+        }
+
+        cells.add(current.toString().trimJava())
+
+        return cells
+    }
+
+
+    /**
+    * Detects the Markdown separator row.
+    *
+    * Accepted examples:
+    *
+    * |---|---|
+    * |:---|---:|
+    * |:---:|:---:|
+    */
+    private fun isTableSeparatorLine(line: String): Boolean {
+        val cells = splitMarkdownTableRow(line)
+
+        if (cells.isEmpty()) {
+            return false
+        }
+
+        val separator = Regex("^:?-{3,}:?$")
+
+        return cells.all {
+            separator.matches(it.trimJava())
+        }
+    }
+
+
+    /**
+    * Builds a lightweight table-cell background.
+    *
+    * No drawable XML is required, so this stays completely self-contained
+    * inside MarkdownRenderer.
+    */
+    private fun tableCellBackground(
+        context: Context,
+        header: Boolean,
+        columnIndex: Int,
+        columnCount: Int
+    ): android.graphics.drawable.Drawable {
+
+        val background = android.graphics.drawable.GradientDrawable()
+
+        background.setColor(
+            if (header) {
+                Theme.SURFACE_2
+            } else {
+                Theme.SURFACE
+            }
+        )
+
+        /*
+        * Very subtle rounded corners only on the outer cells.
+        */
+        val radius = Theme.dpf(context, 3.0f)
+
+        val topLeft = if (header && columnIndex == 0) radius else 0f
+        val topRight =
+            if (header && columnIndex == columnCount - 1) radius else 0f
+
+        background.cornerRadii = floatArrayOf(
+            topLeft, topLeft,
+            topRight, topRight,
+            0f, 0f,
+            0f, 0f
+        )
+
+        background.setStroke(
+            Theme.dp(context, 1.0f),
+            Theme.BORDER
+        )
+
+        return background
     }
 
     private fun addProseBlock(context: Context, container: LinearLayout, text: String) {

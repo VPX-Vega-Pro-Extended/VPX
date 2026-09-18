@@ -33,3 +33,8 @@ sdk/
 # python bytecode from the test gate
 __pycache__/
 *.pyc
+
+.kotlincache/
+.kotlin/
+.gradle/
+build/

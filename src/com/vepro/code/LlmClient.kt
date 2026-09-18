@@ -898,7 +898,7 @@ class LlmClient private constructor(
 
     @Throws(Exception::class)
     private fun endpoint(protocol: String, stream: Boolean): String =
-        endpointFor(baseUrl, model, protocol, stream)
+        endpointFor(baseUrl, model, protocol, stream, provider)
 
     @Throws(Exception::class)
     private fun open(endpoint: String, accept: String): HttpURLConnection {
@@ -926,7 +926,6 @@ class LlmClient private constructor(
         connection.readTimeout = timeoutMs
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("Accept", accept)
-        connection.setRequestProperty("User-Agent", "VegaAgent/1.0 (Android)")
         return connection
     }
 
@@ -1338,7 +1337,8 @@ class LlmClient private constructor(
             base: String?,
             model: String?,
             protocol: String,
-            stream: Boolean
+            stream: Boolean,
+            provider: String? = null
         ): String {
             var normalized = trimTrailingSlashes(base?.trimJava() ?: "")
             if (PROTOCOL_GEMINI == protocol) {
@@ -1378,11 +1378,21 @@ class LlmClient private constructor(
                     }
                 )
             }
-            val suffix = if (PROTOCOL_ANTHROPIC == protocol) "messages" else "chat/completions"
             val lower = normalized.lowercase(Locale.US)
             if (ENDPOINT_ALREADY_FULL.matches(lower)) {
                 return normalized
             }
+
+            if (Prefs.PROV_LM_STUDIO == provider) {
+                val lmBase = if (lower.endsWith("/v1")) {
+                    normalized
+                } else {
+                    appendPath(normalized, "v1")
+                }
+                return appendPath(lmBase, "chat/completions")
+            }
+
+            val suffix = if (PROTOCOL_ANTHROPIC == protocol) "messages" else "chat/completions"
             return appendPath(normalized, suffix)
         }
 
@@ -1397,6 +1407,9 @@ class LlmClient private constructor(
             }
             if (Prefs.PROV_GEMINI == selected) {
                 return PROTOCOL_GEMINI
+            }
+            if (Prefs.PROV_LM_STUDIO == selected) {
+                return PROTOCOL_OPENAI
             }
             if (Prefs.PROV_OPENAI == selected) {
                 return PROTOCOL_OPENAI

@@ -5,6 +5,7 @@
 // Gradle onto the project's FLAT layout (src/, res/, assets/, AndroidManifest
 // at the root) rather than moving anything, so both builds compile exactly the
 // same files.
+import java.util.Properties
 
 plugins {
     id("com.android.application") version "8.7.2"
@@ -17,7 +18,9 @@ plugins {
 val keystoreProperties: Map<String, String> = run {
     val file = rootProject.file("keystore/keystore.properties")
     if (!file.isFile) return@run emptyMap()
-    val loaded = java.util.Properties().apply { file.inputStream().use(::load) }
+    val loaded = Properties().apply {
+        file.inputStream().use { load(it) }
+    }
     // Map the file's own key names onto the VEPRO_* names used everywhere else.
     mapOf(
         "VEPRO_KEYSTORE_PATH" to loaded.getProperty("storeFile"),
@@ -56,8 +59,8 @@ android {
         // than the installed app, so keeping the same key is what lets a release
         // install over the last one without a reinstall. See
         // keystore/README-KEYSTORE.md.
-        versionCode = 14
-        versionName = "1"
+        versionCode = 24
+        versionName = "1.0.0"
     }
 
     sourceSets {
