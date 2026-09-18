@@ -2661,7 +2661,7 @@ private var etVoiceTrigger: EditText? = null
             channelRow(
                 "github",
                 "GitHub",
-                "https://github.com/aaq1386/VPX"
+                "https://github.com/VPX-Vega-Pro-Extended/VPX"
             )
         )
 
