@@ -108,6 +108,8 @@ class VoiceTriggerService : Service() {
         startListening()
     }
 
+    override fun onBind(intent: Intent?): IBinder? = null
+
     override fun onStartCommand(
         intent: Intent?,
         flags: Int,
@@ -399,53 +401,44 @@ class VoiceTriggerService : Service() {
 
         val intent =
             Intent(this, MainActivity::class.java).apply {
-
                 flags =
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP
 
-                putExtra(
-                    "voice_trigger",
-                    true
-                )
+                putExtra("voice_trigger", true)
             }
 
         try {
-
-            val creatorOptions =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val creatorOptions =
                     android.app.ActivityOptions.makeBasic().apply {
                         setPendingIntentCreatorBackgroundActivityStartMode(
                             android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
                         )
                     }
-                } else {
-                    null
-                }
 
-            val pendingIntent =
-                PendingIntent.getActivity(
-                    this,
-                    7702,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            PendingIntent.FLAG_IMMUTABLE
-                        } else {
-                            0
-                        },
-                    creatorOptions?.toBundle()
-                )
+                val pendingIntent =
+                    PendingIntent.getActivity(
+                        this,
+                        7702,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE,
+                        creatorOptions.toBundle()
+                    )
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-
-                val options =
+                val sendOptions =
                     android.app.ActivityOptions.makeBasic().apply {
                         setPendingIntentBackgroundActivityStartMode(
                             android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
                         )
                     }
+
+                VpxLogger.info(
+                    "VoiceTriggerService",
+                    "sending MainActivity PendingIntent with BAL allowed"
+                )
 
                 pendingIntent.send(
                     this,
@@ -454,37 +447,19 @@ class VoiceTriggerService : Service() {
                     null,
                     null,
                     null,
-                    options.toBundle()
+                    sendOptions.toBundle()
                 )
-
             } else {
-                pendingIntent.send()
+                startActivity(intent)
             }
 
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            VpxLogger.error(
+                "VoiceTriggerService",
+                "openMainActivity failed: ${e.javaClass.simpleName}: ${e.message}"
+            )
         }
     }
-
-    override fun onDestroy() {
-
-        android.os.Handler(
-            android.os.Looper.getMainLooper()
-        ).removeCallbacks(
-            restartRunnable
-        )
-
-        restartPending = false
-
-        recognizer?.cancel()
-        recognizer?.destroy()
-        recognizer = null
-
-        super.onDestroy()
-    }
-
-    override fun onBind(
-        intent: Intent?
-    ): IBinder? = null
 
     private fun createNotificationChannel() {
 
