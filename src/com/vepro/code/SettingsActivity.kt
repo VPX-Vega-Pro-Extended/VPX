@@ -2256,7 +2256,7 @@ private var etVoiceTrigger: EditText? = null
         glyphLp.marginEnd = Theme.dp(this, Ui.Space.L)
         head.addView(glyph, glyphLp)
 
-        val title = Ui.text(this, label, Ui.Type.BODY, Theme.TEXT, Theme.ui())
+        val title = Ui.text(this, label, Ui.Type.META, Theme.TEXT, Theme.ui())
         Ui.rowLabel(title)
         head.addView(title, Ui.grow())
 
@@ -2694,7 +2694,116 @@ private var etVoiceTrigger: EditText? = null
             }
         )
 
+        rowDivider(card, ROW_INSET)
+
+        card.addView(
+            Ui.cardRow(
+                this,
+                "trash",
+                "پاکسازی لاگ‌ها",
+                "حذف تمام گزارش‌های ذخیره‌شده برنامه",
+                chevron()
+            ) {
+                confirmClearLogs()
+            }
+        )
+
         return card
+    }
+
+    private fun confirmClearLogs() {
+        val dialog = android.app.Dialog(this)
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                Theme.dp(this@SettingsActivity, 24.0f),
+                Theme.dp(this@SettingsActivity, 22.0f),
+                Theme.dp(this@SettingsActivity, 24.0f),
+                Theme.dp(this@SettingsActivity, 18.0f)
+            )
+            background = Theme.roundRect(
+                Theme.SURFACE_2,
+                Theme.R_CARD,
+                this@SettingsActivity
+            )
+        }
+
+        val title = Ui.text(
+            this,
+            "پاکسازی لاگ‌ها",
+            Ui.Type.META,
+            Theme.TEXT,
+            Theme.uiSemi()
+        )
+
+        val message = Ui.text(
+            this,
+            "تمام گزارش‌های ذخیره‌شده برنامه حذف می‌شوند. این عملیات قابل بازگشت نیست.",
+            Ui.Type.META,
+            Theme.TEXT_MUTED,
+            Theme.ui()
+        ).apply {
+            setPadding(
+                0,
+                Theme.dp(this@SettingsActivity, 10.0f),
+                0,
+                Theme.dp(this@SettingsActivity, 20.0f)
+            )
+        }
+
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.END
+        }
+
+        val cancel = Ui.pillButton(
+            this,
+            "انصراف",
+            null,
+            Ui.GHOST,
+            android.view.View.OnClickListener {
+                dialog.dismiss()
+            }
+        )
+
+        val clear = Ui.pillButton(
+            this,
+            "پاکسازی",
+            "trash",
+            Ui.DANGER,
+            android.view.View.OnClickListener {
+                VpxLogger.clear()
+                dialog.dismiss()
+                say("لاگ‌ها پاک شدند.", false)
+            }
+        )
+
+        actions.addView(cancel)
+
+        actions.addView(
+            clear,
+            LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = Theme.dp(this@SettingsActivity, 8.0f)
+            }
+        )
+
+        container.addView(title)
+        container.addView(message)
+        container.addView(actions)
+
+        dialog.setContentView(container)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        dialog.show()
+
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.88f).toInt(),
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        )
     }
 
     private fun sendVpxLog() {
